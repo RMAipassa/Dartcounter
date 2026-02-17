@@ -1,4 +1,4 @@
-import { nanoid } from 'nanoid'
+import { randomBytes } from 'crypto'
 import { GameRuleError } from '../game/errors'
 import type { Player, PlayerId, X01MatchState, X01Settings } from '../game/types'
 
@@ -23,6 +23,11 @@ export type RoomState = {
 
 const rooms = new Map<RoomCode, RoomState>()
 
+function randomId(bytes: number): string {
+  // URL-safe, no padding
+  return randomBytes(bytes).toString('base64url')
+}
+
 function randomRoomCode(): RoomCode {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let out = ''
@@ -35,7 +40,7 @@ export function createRoom(args: { hostName: string; settings: X01Settings }): R
   let code = randomRoomCode()
   while (rooms.has(code)) code = randomRoomCode()
 
-  const hostSecret = nanoid(24)
+  const hostSecret = randomId(18)
 
   const match: X01MatchState = {
     status: 'LOBBY',
@@ -137,7 +142,7 @@ export function addPlayer(room: RoomState, name: string): Player {
     throw new GameRuleError('INVALID_PLAYER', 'Player name already exists')
   }
 
-  const id: PlayerId = nanoid(10)
+  const id: PlayerId = randomId(8)
   const player: Player = {
     id,
     name: trimmed,

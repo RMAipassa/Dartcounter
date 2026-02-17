@@ -3,6 +3,7 @@ import express from 'express'
 import http from 'http'
 import next from 'next'
 import path from 'path'
+import { randomBytes } from 'crypto'
 import { Server } from 'socket.io'
 import { z } from 'zod'
 import { GameRuleError } from './game/errors'
@@ -21,20 +22,20 @@ import {
   removeClient,
   reorderPlayers,
 } from './store/memory'
-import { nanoid } from 'nanoid'
+
+function randomId(bytes: number): string {
+  return randomBytes(bytes).toString('base64url')
+}
 
 const app = express()
 app.use(cors())
 
-app.get('/', (_req, res) => {
-  res
-    .status(200)
-    .type('text/plain')
-    .send('Dartcounter realtime server is running. Start the web UI on http://localhost:3000')
-})
-
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ ok: true })
+})
+
+app.get('/api/status', (_req, res) => {
+  res.status(200).json({ ok: true, service: 'dartcounter' })
 })
 
 const server = http.createServer(app)
@@ -422,7 +423,7 @@ io.on('connection', (socket) => {
       if (!room.match.lockedAt) room.match.lockedAt = Date.now()
 
       const turn: TurnRecord = {
-        id: nanoid(12),
+        id: randomId(9),
         playerId: currentPlayerId,
         createdAt: Date.now(),
         input,

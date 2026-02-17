@@ -19,7 +19,6 @@
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "nanoid": "^5.1.6",
     "next": "15.5.12",
     "react": "19.0.0",
     "react-dom": "19.0.0",
