@@ -18,6 +18,7 @@ export type RoomState = {
   createdAt: number
   clients: Map<string, ClientInfo>
   hostSecret: string
+  controllerSocketIdByPlayerId: Record<string, string>
   match: X01MatchState
 }
 
@@ -70,6 +71,7 @@ export function createRoom(args: { hostName: string; settings: X01Settings }): R
     createdAt: now,
     clients: new Map(),
     hostSecret,
+    controllerSocketIdByPlayerId: {},
     match,
   }
   rooms.set(code, room)

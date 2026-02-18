@@ -143,7 +143,7 @@ function emitSnapshot(code: string) {
   })
 }
 
-function ensurePlayerExists(roomCode: string, displayName: string): void {
+function ensurePlayer(roomCode: string, displayName: string, controllerSocketId?: string) {
   const room = getRoom(roomCode)
   if (room.match.status !== 'LOBBY') return
   if (room.match.lockedAt || totalTurnsInMatch(room.match) > 0) return
@@ -152,7 +152,29 @@ function ensurePlayerExists(roomCode: string, displayName: string): void {
   if (!name) return
 
   const exists = room.match.players.some((p) => p.name.toLowerCase() === name.toLowerCase())
-  if (!exists) addPlayer(room, name)
+
+  if (!exists) {
+    const p = addPlayer(room, name)
+    if (controllerSocketId) room.controllerSocketIdByPlayerId[p.id] = controllerSocketId
+    return p
+  }
+
+  const existing = room.match.players.find((p) => p.name.toLowerCase() === name.toLowerCase())
+  if (existing && controllerSocketId) room.controllerSocketIdByPlayerId[existing.id] = controllerSocketId
+  return existing
+}
+
+function getPlayerByName(roomCode: string, displayName: string) {
+  const room = getRoom(roomCode)
+  const name = displayName.trim().toLowerCase()
+  return room.match.players.find((p) => p.name.toLowerCase() === name) ?? null
+}
+
+function clearControllersForSocket(roomCode: string, socketId: string) {
+  const room = getRoom(roomCode)
+  for (const [playerId, controller] of Object.entries(room.controllerSocketIdByPlayerId)) {
+    if (controller === socketId) delete room.controllerSocketIdByPlayerId[playerId]
+  }
 }
 
 function removePlayerByName(roomCode: string, displayName: string): void {
@@ -197,6 +219,7 @@ io.on('connection', (socket) => {
   function detachFromRoom(code: string) {
     try {
       const room = getRoom(code)
+      clearControllersForSocket(code, socket.id)
       removeClient(room, socket.id)
       socket.leave(roomChannel(code))
       if (isRoomEmpty(room)) deleteRoom(code)
@@ -235,11 +258,11 @@ io.on('connection', (socket) => {
       addClient(room, { socketId: socket.id, name, isHost: true, role: 'PLAYER' })
 
       // By default, the host is also a player in the lobby.
-      ensurePlayerExists(room.code, name)
+      const hostPlayer = ensurePlayer(room.code, name, socket.id)
 
       socket.join(roomChannel(room.code))
       ;(socket.data as any).roomCode = room.code
-      cb?.({ ok: true, code: room.code, hostSecret: room.hostSecret, role: 'PLAYER' })
+      cb?.({ ok: true, code: room.code, hostSecret: room.hostSecret, role: 'PLAYER', playerId: hostPlayer?.id })
       emitSnapshot(room.code)
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
@@ -315,8 +338,19 @@ io.on('connection', (socket) => {
         role,
       })
 
-      // By default, anyone joining in the lobby as a player is added as a player.
-      if (role === 'PLAYER' && room.match.status === 'LOBBY') ensurePlayerExists(code, name)
+      let playerId: string | undefined
+      if (role === 'PLAYER') {
+        if (room.match.status === 'LOBBY') {
+          const p = ensurePlayer(code, name, socket.id)
+          playerId = p?.id
+        } else {
+          const p = getPlayerByName(code, name)
+          if (p) {
+            room.controllerSocketIdByPlayerId[p.id] = socket.id
+            playerId = p.id
+          }
+        }
+      }
 
       socket.join(roomChannel(code))
       ;(socket.data as any).roomCode = code
@@ -325,7 +359,7 @@ io.on('connection', (socket) => {
         socket.emit('room:toast', { message: 'Game already started: joined as spectator.' })
       }
 
-      cb?.({ ok: true, role })
+      cb?.({ ok: true, role, playerId })
       emitSnapshot(code)
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
@@ -341,8 +375,28 @@ io.on('connection', (socket) => {
       const client = getClient(room, socket.id)
       if (!client) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
       client.role = 'PLAYER'
-      ensurePlayerExists(code, client.name)
+      const p = ensurePlayer(code, client.name, socket.id)
       cb?.({ ok: true })
+      emitSnapshot(code)
+    } catch (err) {
+      const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
+      cb?.({ ok: false, code: e.code, message: e.message, details: (e as any).details })
+    }
+  })
+
+  socket.on('lobby:addLocalPlayer', async (raw, cb) => {
+    try {
+      const schema = z.object({ name: z.string().trim().min(1).max(32) })
+      const { name } = schema.parse(raw)
+      const code = currentRoomCode()
+      const room = getRoom(code)
+      if (room.match.status !== 'LOBBY') throw new GameRuleError('NOT_IN_LOBBY', 'Game already started')
+      if (room.match.lockedAt || totalTurnsInMatch(room.match) > 0) {
+        throw new GameRuleError('SETTINGS_LOCKED', 'Game is locked after the first recorded turn')
+      }
+      const player = addPlayer(room, name)
+      room.controllerSocketIdByPlayerId[player.id] = socket.id
+      cb?.({ ok: true, player })
       emitSnapshot(code)
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
@@ -377,8 +431,10 @@ io.on('connection', (socket) => {
       assertHost(room, hostSecret)
       if (room.match.status !== 'LOBBY') throw new GameRuleError('NOT_IN_LOBBY', 'Game already started')
 
-      addPlayer(room, name)
-      cb?.({ ok: true })
+      const player = addPlayer(room, name)
+      // Host that adds the player controls it until that player joins.
+      room.controllerSocketIdByPlayerId[player.id] = socket.id
+      cb?.({ ok: true, player })
       emitSnapshot(code)
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
@@ -464,6 +520,13 @@ io.on('connection', (socket) => {
       const currentIdx = snap.leg.currentPlayerIndex
       if (currentIdx < 0) throw new GameRuleError('LEG_FINISHED', 'Leg is finished')
       const currentPlayerId = snap.players[currentIdx].id
+
+      const controller = room.controllerSocketIdByPlayerId[currentPlayerId]
+      if (controller !== socket.id) {
+        throw new GameRuleError('NOT_YOUR_TURN', 'You can only submit scores for players you control', {
+          currentPlayerId,
+        })
+      }
 
       const currentPlayerState = snap.leg.players.find((p) => p.playerId === currentPlayerId)
       if (!currentPlayerState) {

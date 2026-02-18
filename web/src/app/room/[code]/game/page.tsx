@@ -23,7 +23,7 @@ export default function GamePage() {
     { segment: 20, multiplier: 1 },
   ])
 
-  const [needDarts, setNeedDarts] = useState<null | 'CHECKOUT' | 'DOUBLE_IN'>(null)
+  const [needDarts, setNeedDarts] = useState<null | 'DOUBLE_IN'>(null)
 
   useEffect(() => {
     const next = String(total)
@@ -103,8 +103,7 @@ export default function GamePage() {
 
       const res = await socket.emitWithAck('game:submitTurn', payload)
       if (!res?.ok) {
-        if (res?.code === 'NEED_DARTS_FOR_CHECKOUT') setNeedDarts('CHECKOUT')
-        else if (res?.code === 'NEED_DARTS_FOR_DOUBLE_IN') setNeedDarts('DOUBLE_IN')
+        if (res?.code === 'NEED_DARTS_FOR_DOUBLE_IN') setNeedDarts('DOUBLE_IN')
         throw new Error(res?.message ?? 'Failed')
       }
       setNeedDarts(null)
@@ -250,9 +249,7 @@ export default function GamePage() {
                 {needDarts ? (
                   <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.18)' }}>
                     <div className="help" style={{ marginBottom: 8 }}>
-                      {needDarts === 'CHECKOUT'
-                        ? 'This looks like a checkout; enter darts so the server can verify the finishing dart.'
-                        : 'Double-in is enabled and you are not in yet; enter darts so the server can verify the double-in.'}
+                      Double-in is enabled and you are not in yet; enter darts so the server can verify the double-in.
                     </div>
                     <PerDartEditor darts={darts} onChange={setDarts} />
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
@@ -268,9 +265,16 @@ export default function GamePage() {
               </div>
             )}
 
-            <button className="btn btnPrimary" onClick={() => submitTurn(false)} disabled={!settings || !currentPlayer || finished}>
+            <button
+              className="btn btnPrimary"
+              onClick={() => submitTurn(false)}
+              disabled={!settings || !currentPlayer || finished || !canSubmitForCurrent(code, currentPlayer.id)}
+            >
               Submit turn
             </button>
+            {!finished && currentPlayer && !canSubmitForCurrent(code, currentPlayer.id) ? (
+              <div className="help">Waiting for {currentPlayer.name} to submit.</div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -361,6 +365,17 @@ function useMediaQuery(query: string) {
   }, [query])
 
   return matches
+}
+
+function canSubmitForCurrent(code: string, currentPlayerId: string): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const key = `dc_controlled_${code.toUpperCase()}`
+    const ids = JSON.parse(localStorage.getItem(key) ?? '[]') as string[]
+    return ids.includes(currentPlayerId)
+  } catch {
+    return false
+  }
 }
 
 function PlayerPanel({
@@ -501,100 +516,92 @@ function ScoresByPlayer({
   )
 }
 
+type DartKind = 'MISS' | 'S' | 'D' | 'T' | 'SB' | 'DB'
+
+function kindFromDart(d: Dart): DartKind {
+  if (d.multiplier === 0) return 'MISS'
+  if (d.segment === 25 && d.multiplier === 1) return 'SB'
+  if (d.segment === 25 && d.multiplier === 2) return 'DB'
+  if (d.multiplier === 3) return 'T'
+  if (d.multiplier === 2) return 'D'
+  return 'S'
+}
+
+function dartFrom(kind: DartKind, segment: number): Dart {
+  if (kind === 'MISS') return { segment: 0, multiplier: 0 }
+  if (kind === 'SB') return { segment: 25, multiplier: 1 }
+  if (kind === 'DB') return { segment: 25, multiplier: 2 }
+  const seg = Math.max(1, Math.min(20, Math.floor(segment)))
+  if (kind === 'T') return { segment: seg, multiplier: 3 }
+  if (kind === 'D') return { segment: seg, multiplier: 2 }
+  return { segment: seg, multiplier: 1 }
+}
+
 function PerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
-  function setDart(i: number, patch: Partial<Dart>) {
-    const next = darts.map((d, idx) => (idx === i ? { ...d, ...patch } : d))
-    onChange(next)
+  const [segText, setSegText] = useState<string[]>(() =>
+    [0, 1, 2].map((i) => String((darts[i]?.segment ?? 20) === 25 ? 20 : darts[i]?.segment ?? 20)),
+  )
+
+  useEffect(() => {
+    setSegText([0, 1, 2].map((i) => String((darts[i]?.segment ?? 20) === 25 ? 20 : darts[i]?.segment ?? 20)))
+  }, [darts])
+
+  function setDart(i: number, next: Dart) {
+    const out = darts.map((d, idx) => (idx === i ? next : d))
+    onChange(out)
   }
 
-  const [active, setActive] = useState<number>(0)
-  const activeDart = darts[active] ?? { segment: 0, multiplier: 0 }
+  function setKind(i: number, kind: DartKind) {
+    const currentSeg = Number(segText[i] ?? '20')
+    const seg = Number.isFinite(currentSeg) ? currentSeg : 20
+    setDart(i, dartFrom(kind, seg))
+  }
 
-  function setActiveSegmentText(txt: string) {
-    const v = txt.replace(/[^0-9]/g, '').slice(0, 2)
-    const n = v === '' ? 0 : Number(v)
+  function setSegment(i: number, raw: string) {
+    const v = raw.replace(/[^0-9]/g, '').slice(0, 2)
+    setSegText((s) => s.map((x, idx) => (idx === i ? v : x)))
+    const n = v === '' ? NaN : Number(v)
     if (!Number.isFinite(n)) return
-    // allow 0-20 and 25
-    const clamped = n === 25 ? 25 : Math.max(0, Math.min(20, n))
-    setDart(active, { segment: clamped })
+    const k = kindFromDart(darts[i] ?? { segment: 20, multiplier: 1 })
+    if (k === 'MISS' || k === 'SB' || k === 'DB') return
+    setDart(i, dartFrom(k, n))
   }
 
   return (
     <div className="col">
-      <div className="help">Darts (segment 0-20, or 25. multiplier 0/1/2/3; miss is 0x0)</div>
-
-      <div className="mobileOnly">
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="pill">Editing dart {active + 1}</span>
-          <div className="row">
-            {[0, 1, 2].map((i) => (
-              <button key={i} className="btn" onClick={() => setActive(i)} disabled={active === i}>
-                {i + 1}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="pill">Segment: {activeDart.segment}</span>
-          <span className="pill">Mult: x{activeDart.multiplier}</span>
-        </div>
-
-        <div className="row" style={{ flexWrap: 'wrap' }}>
-          {[0, 1, 2, 3].map((m) => (
-            <button
-              key={m}
-              className="btn"
-              onClick={() => setDart(active, { multiplier: m as any })}
-              disabled={activeDart.multiplier === m}
-            >
-              x{m}
-            </button>
-          ))}
-          <button className="btn" onClick={() => setDart(active, { segment: 25, multiplier: 1 })}>
-            Bull 25
-          </button>
-          <button className="btn" onClick={() => setDart(active, { segment: 25, multiplier: 2 })}>
-            Bull 50
-          </button>
-        </div>
-
-        <NumberPad
-          valueText={String(activeDart.segment)}
-          onChangeText={setActiveSegmentText}
-          onEnter={() => setActive((a) => Math.min(2, a + 1))}
-          enterLabel="Next"
-        />
-
-        <hr className="hr" />
-      </div>
+      <div className="help">Enter each dart as Single/Double/Triple + segment 1-20, or SB (25) / DB (50) / Miss.</div>
 
       <div className="grid2">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
-            <div className="help" style={{ marginBottom: 8 }}>Dart {i + 1}</div>
-            <div className="row">
-              <input
-                className="input"
-                type="number"
-                inputMode="numeric"
-                value={darts[i]?.segment ?? 0}
-                onChange={(e) => setDart(i, { segment: Number(e.target.value) })}
-                placeholder="20"
-              />
-              <select
-                className="select"
-                value={darts[i]?.multiplier ?? 0}
-                onChange={(e) => setDart(i, { multiplier: Number(e.target.value) as any })}
-              >
-                <option value={0}>x0</option>
-                <option value={1}>x1</option>
-                <option value={2}>x2</option>
-                <option value={3}>x3</option>
-              </select>
+        {[0, 1, 2].map((i) => {
+          const d = darts[i] ?? { segment: 20, multiplier: 1 }
+          const kind = kindFromDart(d)
+          const needsSeg = kind === 'S' || kind === 'D' || kind === 'T'
+          return (
+            <div key={i} className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
+              <div className="help" style={{ marginBottom: 8 }}>Dart {i + 1}</div>
+              <div className="col">
+                <select className="select" value={kind} onChange={(e) => setKind(i, e.target.value as DartKind)}>
+                  <option value="MISS">Miss</option>
+                  <option value="S">Single</option>
+                  <option value="D">Double</option>
+                  <option value="T">Triple</option>
+                  <option value="SB">Single bull (25)</option>
+                  <option value="DB">Bullseye (50)</option>
+                </select>
+
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="1-20"
+                  disabled={!needsSeg}
+                  value={needsSeg ? segText[i] ?? '' : ''}
+                  onChange={(e) => setSegment(i, e.target.value)}
+                />
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

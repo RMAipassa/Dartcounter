@@ -52,6 +52,14 @@ export default function LobbyPage() {
       })
       .then((res: any) => {
       if (!res?.ok) setToast(res?.message ?? 'Failed to join')
+      if (res?.ok && res?.role === 'PLAYER' && res?.playerId) {
+        const key = `dc_controlled_${code}`
+        const current = JSON.parse(localStorage.getItem(key) ?? '[]') as string[]
+        if (!current.includes(res.playerId)) {
+          current.push(res.playerId)
+          localStorage.setItem(key, JSON.stringify(current))
+        }
+      }
       })
 
     return () => {
@@ -72,6 +80,15 @@ export default function LobbyPage() {
       const socket = getSocket(serverUrl)
       const res = await socket.emitWithAck('lobby:addPlayer', { hostSecret, name: newPlayer })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed')
+
+      // Host controls players they add until the player joins.
+      const key = `dc_controlled_${code}`
+      const current = JSON.parse(localStorage.getItem(key) ?? '[]') as string[]
+      if (res?.player?.id && !current.includes(res.player.id)) {
+        current.push(res.player.id)
+        localStorage.setItem(key, JSON.stringify(current))
+      }
+
       setNewPlayer('')
     } catch (e: any) {
       setToast(e?.message ?? String(e))
