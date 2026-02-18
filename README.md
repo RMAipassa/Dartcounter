@@ -27,6 +27,11 @@ Run both at once:
 npm run dev:all
 ```
 
+Windows shortcuts:
+
+- Dev: `run-dev.cmd`
+- Prod (build + start): `run-prod.cmd` (uses `PORT` env var, default `7777`)
+
 Web uses `NEXT_PUBLIC_SERVER_URL` (defaults to `http://localhost:3001`). See `web/.env.example`.
 
 ## Single-process (one port) hosting

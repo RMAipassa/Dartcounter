@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { GameRuleError } from './game/errors'
 import type { Dart, TurnInput, TurnRecord, X01Settings } from './game/types'
 import { applyX01Turn, computeMatchSnapshot, totalTurnsInMatch, validateX01Settings } from './game/x01'
+import { computePlayerStats } from './game/stats'
 import {
   addClient,
   addPlayer,
@@ -135,7 +136,10 @@ function emitSnapshot(code: string) {
       isHost: c.isHost,
       role: c.role,
     })),
-    match: computeMatchSnapshot(room.match),
+    match: {
+      ...computeMatchSnapshot(room.match),
+      statsByPlayerId: computePlayerStats(room.match),
+    },
   })
 }
 
@@ -165,6 +169,8 @@ function removePlayerByName(roomCode: string, displayName: string): void {
   if (idx < 0) return
   const removed = room.match.players.splice(idx, 1)[0]
   delete room.match.legsWonByPlayerId[removed.id]
+  delete room.match.legsWonInCurrentSetByPlayerId[removed.id]
+  delete room.match.setsWonByPlayerId[removed.id]
 
   // Re-index order
   room.match.players = room.match.players.map((p, i) => ({ ...p, orderIndex: i }))
@@ -188,10 +194,40 @@ function toTurnInput(args: { settings: X01Settings; total?: number; darts?: Dart
 }
 
 io.on('connection', (socket) => {
+  function detachFromRoom(code: string) {
+    try {
+      const room = getRoom(code)
+      removeClient(room, socket.id)
+      socket.leave(roomChannel(code))
+      if (isRoomEmpty(room)) deleteRoom(code)
+      else emitSnapshot(code)
+    } catch {
+      // ignore
+    }
+  }
+
+  function leaveCurrentRoomIfAny(nextCode?: string) {
+    const existing = (socket.data as any).roomCode as string | undefined
+    if (!existing) return
+    if (nextCode && existing === nextCode) return
+    detachFromRoom(existing)
+    delete (socket.data as any).roomCode
+  }
+
+  function currentRoomCode(): string {
+    const code = (socket.data as any).roomCode as string | undefined
+    if (code) return code
+    const fromRooms = [...socket.rooms].find((r) => r.startsWith('room:'))?.slice(5)
+    if (fromRooms) return fromRooms
+    throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+  }
+
   socket.on('room:create', (raw, cb) => {
     try {
       const { name, settings, title, isPublic } = createSchema.parse(raw)
       validateX01Settings(settings)
+
+      leaveCurrentRoomIfAny()
 
       const room = createRoom({ hostName: name, settings })
       room.title = (title ?? '').trim()
@@ -202,7 +238,8 @@ io.on('connection', (socket) => {
       ensurePlayerExists(room.code, name)
 
       socket.join(roomChannel(room.code))
-      cb?.({ ok: true, code: room.code, hostSecret: room.hostSecret })
+      ;(socket.data as any).roomCode = room.code
+      cb?.({ ok: true, code: room.code, hostSecret: room.hostSecret, role: 'PLAYER' })
       emitSnapshot(room.code)
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
@@ -213,6 +250,19 @@ io.on('connection', (socket) => {
   socket.on('rooms:listPublic', async (_raw, cb) => {
     try {
       cb?.({ ok: true, rooms: listPublicRooms() })
+    } catch (err) {
+      const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
+      cb?.({ ok: false, code: e.code, message: e.message })
+    }
+  })
+
+  socket.on('room:leave', async (_raw, cb) => {
+    try {
+      const code = (socket.data as any).roomCode as string | undefined
+      if (!code) throw new GameRuleError('NOT_IN_ROOM', 'Not in a room')
+      detachFromRoom(code)
+      delete (socket.data as any).roomCode
+      cb?.({ ok: true })
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
       cb?.({ ok: false, code: e.code, message: e.message })
@@ -247,19 +297,35 @@ io.on('connection', (socket) => {
       const { code, name, hostSecret, asSpectator } = joinSchema.parse(raw)
       if (!code) throw new GameRuleError('NEED_CODE', 'Room code is required')
 
+      leaveCurrentRoomIfAny(code)
+
       const room = getRoom(code)
+
+      const normalized = name.trim().toLowerCase()
+      const isExistingPlayerName = room.match.players.some((p) => p.name.toLowerCase() === normalized)
+      const gameStarted = room.match.status !== 'LOBBY'
+
+      const role: 'PLAYER' | 'SPECTATOR' =
+        isExistingPlayerName ? 'PLAYER' : gameStarted ? 'SPECTATOR' : asSpectator ? 'SPECTATOR' : 'PLAYER'
+
       addClient(room, {
         socketId: socket.id,
         name,
         isHost: hostSecret === room.hostSecret,
-        role: asSpectator ? 'SPECTATOR' : 'PLAYER',
+        role,
       })
 
-      // By default, anyone joining in the lobby is added as a player.
-      if (!asSpectator) ensurePlayerExists(code, name)
+      // By default, anyone joining in the lobby as a player is added as a player.
+      if (role === 'PLAYER' && room.match.status === 'LOBBY') ensurePlayerExists(code, name)
 
       socket.join(roomChannel(code))
-      cb?.({ ok: true })
+      ;(socket.data as any).roomCode = code
+
+      if (gameStarted && role === 'SPECTATOR' && !asSpectator) {
+        socket.emit('room:toast', { message: 'Game already started: joined as spectator.' })
+      }
+
+      cb?.({ ok: true, role })
       emitSnapshot(code)
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
@@ -305,8 +371,7 @@ io.on('connection', (socket) => {
   socket.on('lobby:addPlayer', (raw, cb) => {
     try {
       const { hostSecret, name } = addPlayerSchema.parse(raw)
-      const code = [...socket.rooms].find((r) => r.startsWith('room:'))?.slice(5)
-      if (!code) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+      const code = currentRoomCode()
 
       const room = getRoom(code)
       assertHost(room, hostSecret)
@@ -324,8 +389,7 @@ io.on('connection', (socket) => {
   socket.on('lobby:reorderPlayers', (raw, cb) => {
     try {
       const { hostSecret, playerIdsInOrder } = reorderSchema.parse(raw)
-      const code = [...socket.rooms].find((r) => r.startsWith('room:'))?.slice(5)
-      if (!code) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+      const code = currentRoomCode()
 
       const room = getRoom(code)
       assertHost(room, hostSecret)
@@ -343,8 +407,7 @@ io.on('connection', (socket) => {
     try {
       const { hostSecret, settings } = updateSettingsSchema.parse(raw)
       validateX01Settings(settings)
-      const code = [...socket.rooms].find((r) => r.startsWith('room:'))?.slice(5)
-      if (!code) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+      const code = currentRoomCode()
 
       const room = getRoom(code)
       assertHost(room, hostSecret)
@@ -363,8 +426,7 @@ io.on('connection', (socket) => {
   socket.on('lobby:startGame', (raw, cb) => {
     try {
       const { hostSecret, startingPlayerIndex } = startSchema.parse(raw)
-      const code = [...socket.rooms].find((r) => r.startsWith('room:'))?.slice(5)
-      if (!code) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+      const code = currentRoomCode()
 
       const room = getRoom(code)
       assertHost(room, hostSecret)
@@ -392,8 +454,7 @@ io.on('connection', (socket) => {
   socket.on('game:submitTurn', (raw, cb) => {
     try {
       const { total, darts } = submitTurnSchema.parse(raw)
-      const code = [...socket.rooms].find((r) => r.startsWith('room:'))?.slice(5)
-      if (!code) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+      const code = currentRoomCode()
 
       const room = getRoom(code)
       if (room.match.status !== 'LIVE') throw new GameRuleError('NOT_LIVE', 'Game is not live')
@@ -439,12 +500,37 @@ io.on('connection', (socket) => {
         leg.winnerPlayerId = winnerId
         room.match.legsWonByPlayerId[winnerId] = (room.match.legsWonByPlayerId[winnerId] ?? 0) + 1
 
-        if (room.match.legsWonByPlayerId[winnerId] >= room.match.settings.legsToWin) {
-          room.match.status = 'FINISHED'
+        if (!room.match.settings.setsEnabled) {
+          room.match.legsWonInCurrentSetByPlayerId[winnerId] =
+            (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
+
+          if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
+            room.match.status = 'FINISHED'
+          }
         } else {
+          room.match.legsWonInCurrentSetByPlayerId[winnerId] =
+            (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
+
+          if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
+            room.match.setsWonByPlayerId[winnerId] = (room.match.setsWonByPlayerId[winnerId] ?? 0) + 1
+
+            if (room.match.setsWonByPlayerId[winnerId] >= room.match.settings.setsToWin) {
+              room.match.status = 'FINISHED'
+            } else {
+              // Start new set
+              room.match.currentSetNumber += 1
+              for (const p of room.match.players) {
+                room.match.legsWonInCurrentSetByPlayerId[p.id] = 0
+              }
+            }
+          }
+        }
+
+        if (room.match.status !== 'FINISHED') {
           const nextLegNumber = leg.legNumber + 1
           const nextStartingPlayerIndex = (leg.startingPlayerIndex + 1) % room.match.players.length
           room.match.legs.push({
+            setNumber: room.match.currentSetNumber,
             legNumber: nextLegNumber,
             startingPlayerIndex: nextStartingPlayerIndex,
             turns: [],
@@ -465,8 +551,7 @@ io.on('connection', (socket) => {
   socket.on('game:undoLastTurn', (raw, cb) => {
     try {
       const { hostSecret } = undoSchema.parse(raw)
-      const code = [...socket.rooms].find((r) => r.startsWith('room:'))?.slice(5)
-      if (!code) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+      const code = currentRoomCode()
 
       const room = getRoom(code)
       assertHost(room, hostSecret)
@@ -500,17 +585,15 @@ io.on('connection', (socket) => {
   })
 
   socket.on('disconnect', () => {
-    for (const roomName of socket.rooms) {
-      if (!roomName.startsWith('room:')) continue
-      const code = roomName.slice(5)
-      try {
-        const room = getRoom(code)
-        removeClient(room, socket.id)
-        if (isRoomEmpty(room)) deleteRoom(code)
-        else emitSnapshot(code)
-      } catch {
-        // ignore
-      }
+    const code = (socket.data as any).roomCode as string | undefined
+    if (!code) return
+    try {
+      const room = getRoom(code)
+      removeClient(room, socket.id)
+      if (isRoomEmpty(room)) deleteRoom(code)
+      else emitSnapshot(code)
+    } catch {
+      // ignore
     }
   })
 })

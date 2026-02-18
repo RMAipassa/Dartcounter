@@ -205,15 +205,6 @@ function applyTotalTurn(args: {
 
   const remainingAfterCandidate = remainingBefore - total
 
-  const needsCheckoutDarts =
-    remainingAfterCandidate === 0 && (settings.doubleOut || settings.masterOut)
-  if (needsCheckoutDarts && !darts) {
-    throw new GameRuleError(
-      'NEED_DARTS_FOR_CHECKOUT',
-      'Double-out/master-out is enabled; provide per-dart detail for checkout turns',
-    )
-  }
-
   if (darts) {
     const applied = applyPerDartTurn({ remainingBefore, isInBefore, darts, settings })
     if (applied.scoreTotal !== total) {
@@ -281,8 +272,10 @@ export function computeX01LegSnapshot(args: {
   startingPlayerIndex: number
   turns: TurnRecord[]
   legNumber: number
+  setNumber?: number
 }): X01LegSnapshot {
   const { settings, startingPlayerIndex, turns, legNumber } = args
+  const setNumber = args.setNumber ?? 1
   validateX01Settings(settings)
 
   const players = sortedPlayers(args.players)
@@ -348,6 +341,7 @@ export function computeX01LegSnapshot(args: {
   const currentPlayerIndex = winnerPlayerId ? -1 : (startingPlayerIndex + turns.length) % players.length
 
   return {
+    setNumber,
     legNumber,
     startingPlayerIndex,
     currentPlayerIndex,
@@ -383,6 +377,7 @@ export function computeMatchSnapshot(match: X01MatchState) {
     startingPlayerIndex: leg.startingPlayerIndex,
     turns: leg.turns,
     legNumber: leg.legNumber,
+    setNumber: leg.setNumber,
   })
 
   return {
@@ -392,8 +387,12 @@ export function computeMatchSnapshot(match: X01MatchState) {
     players: sortedPlayers(match.players),
     currentLegIndex: match.currentLegIndex,
     legsWonByPlayerId: match.legsWonByPlayerId,
+    legsWonInCurrentSetByPlayerId: match.legsWonInCurrentSetByPlayerId,
+    setsWonByPlayerId: match.setsWonByPlayerId,
+    currentSetNumber: match.currentSetNumber,
     currentLeg: {
       legNumber: legSnap.legNumber,
+      setNumber: legSnap.setNumber,
       startingPlayerIndex: legSnap.startingPlayerIndex,
       currentPlayerIndex: legSnap.currentPlayerIndex,
       winnerPlayerId: legSnap.winnerPlayerId,

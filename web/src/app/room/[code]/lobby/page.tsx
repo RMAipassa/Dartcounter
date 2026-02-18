@@ -25,6 +25,11 @@ export default function LobbyPage() {
       if (!mounted) return
       if (s?.code?.toUpperCase?.() !== code) return
       setSnap(s)
+
+      const status = s?.match?.status
+      if (status && status !== 'LOBBY') {
+        router.replace(`/room/${code}/game`)
+      }
       setStartingPlayerIndex((idx: number) => {
         const max = Math.max(0, (s?.match?.players?.length ?? 1) - 1)
         return Math.min(idx, max)
@@ -117,9 +122,6 @@ export default function LobbyPage() {
           </p>
         </div>
         <div className="row">
-          <a className="btn" href={`/room/${code}/game`}>
-            Go to game
-          </a>
           <a className="btn" href="/">
             Home
           </a>
@@ -329,6 +331,37 @@ function LobbySettings({
             value={draft.legsToWin}
             onChange={(e) => setDraft((s) => ({ ...s, legsToWin: Number(e.target.value) }))}
             disabled={locked}
+          />
+        </div>
+      </div>
+
+      <div className="grid2">
+        <div className="col">
+          <label className="help">Sets</label>
+          <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={draft.setsEnabled}
+              disabled={locked}
+              onChange={(e) =>
+                setDraft((s) => ({
+                  ...s,
+                  setsEnabled: e.target.checked,
+                  setsToWin: e.target.checked ? Math.max(1, s.setsToWin || 1) : 0,
+                }))
+              }
+            />
+            Enable sets
+          </label>
+        </div>
+        <div className="col">
+          <label className="help">Sets to win</label>
+          <input
+            className="input"
+            type="number"
+            value={draft.setsToWin}
+            disabled={locked || !draft.setsEnabled}
+            onChange={(e) => setDraft((s) => ({ ...s, setsToWin: Number(e.target.value) }))}
           />
         </div>
       </div>

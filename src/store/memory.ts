@@ -50,6 +50,7 @@ export function createRoom(args: { hostName: string; settings: X01Settings }): R
     currentLegIndex: 0,
     legs: [
       {
+        setNumber: 1,
         legNumber: 1,
         startingPlayerIndex: 0,
         turns: [],
@@ -57,6 +58,9 @@ export function createRoom(args: { hostName: string; settings: X01Settings }): R
       },
     ],
     legsWonByPlayerId: {},
+    legsWonInCurrentSetByPlayerId: {},
+    setsWonByPlayerId: {},
+    currentSetNumber: 1,
   }
 
   const room: RoomState = {
@@ -151,6 +155,8 @@ export function addPlayer(room: RoomState, name: string): Player {
 
   room.match.players.push(player)
   room.match.legsWonByPlayerId[player.id] = 0
+  room.match.legsWonInCurrentSetByPlayerId[player.id] = 0
+  room.match.setsWonByPlayerId[player.id] = 0
   return player
 }
 

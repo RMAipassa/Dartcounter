@@ -8,6 +8,7 @@ pnpm-debug.log*
 # Builds
 dist/
 .next/
+.next_build/
 out/
 
 # Env
@@ -31,6 +32,7 @@ logs/
 # Web app
 web/node_modules/
 web/.next/
+web/.next_build/
 web/out/
 
 # Local artifacts

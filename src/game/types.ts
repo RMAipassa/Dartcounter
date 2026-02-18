@@ -42,6 +42,7 @@ export type Player = {
 }
 
 export type X01LegState = {
+  setNumber: number
   legNumber: number
   startingPlayerIndex: number
   turns: TurnRecord[]
@@ -56,6 +57,24 @@ export type X01MatchState = {
   currentLegIndex: number
   legs: X01LegState[]
   legsWonByPlayerId: Record<PlayerId, number>
+  legsWonInCurrentSetByPlayerId: Record<PlayerId, number>
+  setsWonByPlayerId: Record<PlayerId, number>
+  currentSetNumber: number
+}
+
+export type PlayerStats = {
+  playerId: PlayerId
+  legsWon: number
+  setsWon: number
+  threeDartAvg: number | null
+  first9Avg: number | null
+  checkoutRate: number | null
+  checkoutAttempts: number
+  checkouts: number
+  highestFinish: number | null
+  highestScore: number
+  bestLegDarts: number | null
+  worstLegDarts: number | null
 }
 
 export type X01PlayerLegSnapshot = {
@@ -66,6 +85,7 @@ export type X01PlayerLegSnapshot = {
 }
 
 export type X01LegSnapshot = {
+  setNumber: number
   legNumber: number
   startingPlayerIndex: number
   currentPlayerIndex: number
@@ -83,4 +103,25 @@ export type X01LegSnapshot = {
       isInAfter: boolean
     }
   >
+}
+
+export type X01MatchSnapshot = {
+  status: GameStatus
+  settings: X01Settings
+  lockedAt: number | null
+  players: Player[]
+  currentLegIndex: number
+  legsWonByPlayerId: Record<PlayerId, number>
+  legsWonInCurrentSetByPlayerId: Record<PlayerId, number>
+  setsWonByPlayerId: Record<PlayerId, number>
+  currentSetNumber: number
+  currentLeg: {
+    setNumber: number
+    legNumber: number
+    startingPlayerIndex: number
+    currentPlayerIndex: number
+    winnerPlayerId: PlayerId | null
+  }
+  leg: X01LegSnapshot
+  statsByPlayerId: Record<PlayerId, PlayerStats>
 }

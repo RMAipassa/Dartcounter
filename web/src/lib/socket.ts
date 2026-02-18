@@ -6,6 +6,7 @@ type AckedSocket = Socket & {
 
 let socketSingleton: AckedSocket | null = null
 let socketUrl: string | null = null
+let unloadHooked = false
 
 export function getSocket(url: string): AckedSocket {
   if (socketSingleton && socketUrl === url) return socketSingleton
@@ -35,5 +36,16 @@ export function getSocket(url: string): AckedSocket {
 
   socketSingleton = s
   socketUrl = url
+
+  if (typeof window !== 'undefined' && !unloadHooked) {
+    unloadHooked = true
+    window.addEventListener('beforeunload', () => {
+      try {
+        socketSingleton?.close()
+      } catch {
+        // ignore
+      }
+    })
+  }
   return s
 }

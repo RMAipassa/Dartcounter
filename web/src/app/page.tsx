@@ -39,7 +39,7 @@ export default function HomePage() {
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to create room')
       localStorage.setItem('dc_name', name)
       localStorage.setItem('dc_hostSecret', res.hostSecret)
-      localStorage.setItem('dc_role', 'PLAYER')
+      localStorage.setItem('dc_role', res.role ?? 'PLAYER')
       setHostSecret(res.hostSecret)
       router.push(`/room/${res.code}/lobby`)
     } catch (e: any) {
@@ -58,7 +58,7 @@ export default function HomePage() {
       const res = await socket.emitWithAck('room:join', { code, name, asSpectator: false })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
       localStorage.setItem('dc_name', name)
-      localStorage.setItem('dc_role', 'PLAYER')
+      localStorage.setItem('dc_role', res.role ?? 'PLAYER')
       router.push(`/room/${code}/lobby`)
     } catch (e: any) {
       setErr(e?.message ?? String(e))
@@ -76,7 +76,7 @@ export default function HomePage() {
       const res = await socket.emitWithAck('room:join', { code, name, asSpectator: true })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
       localStorage.setItem('dc_name', name)
-      localStorage.setItem('dc_role', 'SPECTATOR')
+      localStorage.setItem('dc_role', res.role ?? 'SPECTATOR')
       router.push(`/room/${code}/lobby`)
     } catch (e: any) {
       setErr(e?.message ?? String(e))
@@ -146,6 +146,36 @@ export default function HomePage() {
                     type="number"
                     value={settings.legsToWin}
                     onChange={(e) => setSettings((s) => ({ ...s, legsToWin: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+
+              <div className="grid2">
+                <div className="col">
+                  <label className="help">Sets</label>
+                  <label className="pill" style={{ cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.setsEnabled}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          setsEnabled: e.target.checked,
+                          setsToWin: e.target.checked ? Math.max(1, s.setsToWin || 1) : 0,
+                        }))
+                      }
+                    />
+                    Enable sets
+                  </label>
+                </div>
+                <div className="col">
+                  <label className="help">Sets to win</label>
+                  <input
+                    className="input"
+                    type="number"
+                    value={settings.setsToWin}
+                    disabled={!settings.setsEnabled}
+                    onChange={(e) => setSettings((s) => ({ ...s, setsToWin: Number(e.target.value) }))}
                   />
                 </div>
               </div>

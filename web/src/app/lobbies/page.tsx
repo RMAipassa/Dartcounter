@@ -56,7 +56,7 @@ export default function PublicLobbiesPage() {
       const res = await socket.emitWithAck('room:join', { code, name, asSpectator })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed')
       localStorage.setItem('dc_name', name)
-      localStorage.setItem('dc_role', asSpectator ? 'SPECTATOR' : 'PLAYER')
+      localStorage.setItem('dc_role', res.role ?? (asSpectator ? 'SPECTATOR' : 'PLAYER'))
       router.push(`/room/${code}/lobby`)
     } catch (e: any) {
       setToast(e?.message ?? String(e))

@@ -45,6 +45,7 @@ export type TurnSnapshot = {
 }
 
 export type LegSnapshot = {
+  setNumber: number
   legNumber: number
   startingPlayerIndex: number
   currentPlayerIndex: number
@@ -60,13 +61,33 @@ export type MatchSnapshot = {
   players: Player[]
   currentLegIndex: number
   legsWonByPlayerId: Record<string, number>
+  legsWonInCurrentSetByPlayerId: Record<string, number>
+  setsWonByPlayerId: Record<string, number>
+  currentSetNumber: number
   currentLeg: {
+    setNumber: number
     legNumber: number
     startingPlayerIndex: number
     currentPlayerIndex: number
     winnerPlayerId: string | null
   }
   leg: LegSnapshot
+  statsByPlayerId: Record<string, PlayerStats>
+}
+
+export type PlayerStats = {
+  playerId: string
+  legsWon: number
+  setsWon: number
+  threeDartAvg: number | null
+  first9Avg: number | null
+  checkoutRate: number | null
+  checkoutAttempts: number
+  checkouts: number
+  highestFinish: number | null
+  highestScore: number
+  bestLegDarts: number | null
+  worstLegDarts: number | null
 }
 
 export type RoomSnapshot = {
