@@ -538,6 +538,16 @@ function dartFrom(kind: DartKind, segment: number): Dart {
 }
 
 function PerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
+  const isMobile = useMediaQuery('(max-width: 520px)')
+
+  if (isMobile) {
+    return <MobilePerDartEditor darts={darts} onChange={onChange} />
+  }
+
+  return <PcPerDartEditor darts={darts} onChange={onChange} />
+}
+
+function PcPerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
   const [segText, setSegText] = useState<string[]>(() =>
     [0, 1, 2].map((i) => String((darts[i]?.segment ?? 20) === 25 ? 20 : darts[i]?.segment ?? 20)),
   )
@@ -602,6 +612,100 @@ function PerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
+  const [active, setActive] = useState<0 | 1 | 2>(0)
+  const current = darts[active] ?? { segment: 20, multiplier: 1 }
+  const kind = kindFromDart(current)
+  const needsSeg = kind === 'S' || kind === 'D' || kind === 'T'
+
+  function setDart(i: 0 | 1 | 2, next: Dart) {
+    const out = darts.map((d, idx) => (idx === i ? next : d))
+    onChange(out)
+  }
+
+  function setKind(nextKind: DartKind) {
+    const seg = current.segment === 25 ? 20 : current.segment || 20
+    setDart(active, dartFrom(nextKind, seg))
+  }
+
+  function setSegment(seg: number) {
+    setDart(active, dartFrom(kind === 'S' || kind === 'D' || kind === 'T' ? kind : 'S', seg))
+  }
+
+  return (
+    <div className="col">
+      <div className="help">Tap each dart (no typing).</div>
+
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <span className="pill">Dart {active + 1} of 3</span>
+        <div className="row">
+          {[0, 1, 2].map((i) => (
+            <button
+              key={i}
+              className={active === i ? 'btn btnPrimary' : 'btn'}
+              onClick={() => setActive(i as 0 | 1 | 2)}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="row" style={{ flexWrap: 'wrap' }}>
+        <button className={kind === 'MISS' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('MISS')}>
+          Miss
+        </button>
+        <button className={kind === 'S' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('S')}>
+          Single
+        </button>
+        <button className={kind === 'D' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('D')}>
+          Double
+        </button>
+        <button className={kind === 'T' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('T')}>
+          Triple
+        </button>
+        <button className={kind === 'SB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('SB')}>
+          SB
+        </button>
+        <button className={kind === 'DB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('DB')}>
+          DB
+        </button>
+      </div>
+
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <span className="pill">Selected: {kind === 'SB' ? 'SB (25)' : kind === 'DB' ? 'DB (50)' : kind}</span>
+        <span className="pill">Seg: {current.segment === 25 ? '-' : current.segment}</span>
+      </div>
+
+      {needsSeg ? (
+        <div className="col" style={{ gap: 10 }}>
+          <div className="help">Segment (1-20)</div>
+          <div className="segGrid">
+            {Array.from({ length: 20 }, (_, idx) => idx + 1).map((n) => (
+              <button
+                key={n}
+                className={n === current.segment ? 'key keyPrimary' : 'key'}
+                onClick={() => setSegment(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <button className="btn" onClick={() => setActive((a) => (a === 0 ? 0 : ((a - 1) as 0 | 1 | 2)))}>
+          Back
+        </button>
+        <button className="btn btnPrimary" onClick={() => setActive((a) => (a === 2 ? 2 : ((a + 1) as 0 | 1 | 2)))}>
+          Next
+        </button>
       </div>
     </div>
   )

@@ -21,6 +21,11 @@ body {
   height: 100%;
 }
 
+/* Better fullscreen feel in standalone mode */
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
 body {
   margin: 0;
   color: var(--text);
@@ -40,6 +45,38 @@ a {
   max-width: 980px;
   margin: 0 auto;
   padding: 24px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: rgba(10, 16, 32, 0.72);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(10px);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.menu {
+  position: sticky;
+  top: 58px;
+  z-index: 19;
+  margin: 0 16px;
+}
+
+@media (max-width: 520px) {
+  .menu {
+    top: 54px;
+    margin: 0 14px;
+  }
 }
 
 @media (max-width: 520px) {
@@ -204,6 +241,19 @@ a {
 .keyPrimary {
   border-color: rgba(125, 211, 252, 0.4);
   background: linear-gradient(180deg, rgba(125, 211, 252, 0.26), rgba(125, 211, 252, 0.12));
+}
+
+.segGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 520px) {
+  .segGrid {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
 }
 
 .help {

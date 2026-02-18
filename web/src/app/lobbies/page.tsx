@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
@@ -17,13 +17,14 @@ function fmtAge(ms: number): string {
 
 export default function PublicLobbiesPage() {
   const router = useRouter()
-  const serverUrl = useMemo(() => getServerUrl(), [])
+  const [serverUrl, setServerUrl] = useState('')
   const [rooms, setRooms] = useState<PublicRoom[]>([])
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [name, setName] = useState('')
 
   useEffect(() => {
+    setServerUrl(getServerUrl())
     setName(localStorage.getItem('dc_name') ?? '')
   }, [])
 
@@ -43,6 +44,7 @@ export default function PublicLobbiesPage() {
   }
 
   useEffect(() => {
+    if (!serverUrl) return
     refresh()
     const t = setInterval(refresh, 4000)
     return () => clearInterval(t)

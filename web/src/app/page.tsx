@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
@@ -19,7 +19,7 @@ const defaultSettings: X01Settings = {
 
 export default function HomePage() {
   const router = useRouter()
-  const serverUrl = useMemo(() => getServerUrl(), [])
+  const [serverUrl, setServerUrl] = useState<string>('')
   const [name, setName] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [hostSecret, setHostSecret] = useState<string | null>(null)
@@ -29,6 +29,10 @@ export default function HomePage() {
   const [title, setTitle] = useState('')
   const [isPublic, setIsPublic] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    setServerUrl(getServerUrl())
+  }, [])
 
   async function createRoom() {
     setErr(null)
@@ -92,7 +96,7 @@ export default function HomePage() {
           <h1 className="title">Dartcounter Web</h1>
           <p className="subtitle">Create a room, invite friends, keep score in realtime.</p>
         </div>
-        <span className="pill">Server: {serverUrl}</span>
+        <span className="pill">Server: {serverUrl || 'auto'}</span>
       </div>
 
       <div className="grid2">
