@@ -465,10 +465,36 @@ function MobileTurnEntry({
   }
 
   function setDigit(d: string) {
-    const next = (totalText + d).replace(/^0+(?=\d)/, '').slice(0, 3)
+    const raw = (totalText + d).replace(/^0+(?=\d)/, '')
+
+    function pickValid(s: string): string {
+      const cleaned = s.replace(/^0+(?=\d)/, '')
+      const n = cleaned === '' ? 0 : Number(cleaned)
+      if (!Number.isFinite(n)) return ''
+      if (n < 0 || n > 180) return ''
+      return cleaned
+    }
+
+    // Prefer the longest valid suffix (3 -> 2 -> 1 digits), so:
+    // 616 -> 16, 189 -> 89, 66120 -> 120
+    const candidates: string[] = []
+    const digits = raw.replace(/[^0-9]/g, '')
+    if (digits.length <= 3) candidates.push(digits)
+    else candidates.push(digits.slice(-3))
+    candidates.push(digits.slice(-2))
+    candidates.push(digits.slice(-1))
+
+    let next = ''
+    for (const c of candidates) {
+      const v = pickValid(c)
+      if (v !== '') {
+        next = v
+        break
+      }
+    }
+
     setTotalText(next)
-    const n = next === '' ? 0 : Number(next)
-    if (Number.isFinite(n)) setTotal(Math.min(180, n))
+    setTotal(next === '' ? 0 : Number(next))
   }
 
   function backspace() {
