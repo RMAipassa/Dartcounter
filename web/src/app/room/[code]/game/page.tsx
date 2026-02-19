@@ -372,6 +372,11 @@ function MobileGame({
           ) : null}
         </div>
 
+        <div className="row" style={{ flexWrap: 'wrap', marginTop: 10 }}>
+          {match?.settings?.setsEnabled ? <span className="pill">Sets won: {stats?.setsWon ?? 0}</span> : null}
+          <span className="pill">Legs won: {stats?.legsWon ?? 0}</span>
+        </div>
+
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
           <div className="playerBigNum">{ps?.remaining ?? '-'}</div>
           <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
