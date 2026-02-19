@@ -115,76 +115,42 @@ export default function GamePage() {
 
   return (
     <div className="col" style={{ gap: 16 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 className="title">Game</h1>
-          <p className="subtitle">
-            {settings ? (
-              <span className="pill">
-                {settings.startScore} · {settings.doubleIn ? 'DI' : 'SI'} · {settings.doubleOut ? 'DO' : settings.masterOut ? 'MO' : 'SO'}
-              </span>
-            ) : null}
-          </p>
+      <div className="desktopOnly">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 className="title">Game</h1>
+            <p className="subtitle">
+              {settings ? (
+                <span className="pill">
+                  {settings.startScore} · {settings.doubleIn ? 'DI' : 'SI'} · {settings.doubleOut ? 'DO' : settings.masterOut ? 'MO' : 'SO'}
+                </span>
+              ) : null}
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="mobileOnly">
-        <div className="col" style={{ gap: 14 }}>
-          <EnterTurnCard
-            currentPlayer={currentPlayer}
-            checkoutSuggestion={checkoutSuggestion}
-            entryMode={entryMode}
-            setEntryMode={setEntryMode}
-            darts={darts}
-            setDarts={setDarts}
-            totalText={totalText}
-            setTotalText={setTotalText}
-            total={total}
-            setTotal={setTotal}
-            needDarts={needDarts}
-            setNeedDarts={setNeedDarts}
-            submitTurn={submitTurn}
-            settings={settings}
-            finished={finished}
-            canSubmit={currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false}
-          />
-
-          <div className="card" style={{ padding: 16 }}>
-            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 16, marginBottom: 6 }}>Scoreboard</div>
-                <div className="help">Player · legs · avg</div>
-              </div>
-              {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
-            </div>
-
-            <div className="col" style={{ marginTop: 10, gap: 10 }}>
-              {players.map((p) => {
-                const stats = statsByPlayerId[p.id]
-                const isCurrent = p.id === currentPlayer?.id
-                return (
-                  <div
-                    key={p.id}
-                    className="row"
-                    style={{
-                      justifyContent: 'space-between',
-                      padding: 10,
-                      borderRadius: 12,
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      background: isCurrent ? 'rgba(125, 211, 252, 0.12)' : 'rgba(0,0,0,0.10)',
-                    }}
-                  >
-                    <span className="pill" style={{ color: 'var(--text)' }}>{p.name}</span>
-                    <div className="row" style={{ gap: 8 }}>
-                      <span className="pill">Legs: {stats?.legsWon ?? 0}</span>
-                      <span className="pill">Avg: {stats?.threeDartAvg ?? '-'}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
+      <div className="mobileOnly fullBleed">
+        <MobileGame
+          code={code}
+          match={match}
+          leg={leg}
+          players={players}
+          currentPlayer={currentPlayer}
+          statsByPlayerId={statsByPlayerId}
+          checkoutSuggestion={checkoutSuggestion}
+          canSubmit={currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false}
+          onSubmit={submitTurn}
+          entryMode={entryMode}
+          setEntryMode={setEntryMode}
+          totalText={totalText}
+          setTotalText={setTotalText}
+          total={total}
+          setTotal={setTotal}
+          darts={darts}
+          setDarts={setDarts}
+          finished={finished}
+        />
       </div>
 
       <div className="desktopOnly">
@@ -234,7 +200,8 @@ export default function GamePage() {
         </div>
       </div>
 
-      <div className="card" style={{ padding: 16 }}>
+      <div className="desktopOnly">
+        <div className="card" style={{ padding: 16 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 16, marginBottom: 6 }}>Scores</div>
@@ -260,7 +227,7 @@ export default function GamePage() {
         </div>
       </div>
 
-      <div className="card" style={{ padding: 16 }}>
+        <div className="card" style={{ padding: 16 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 16, marginBottom: 6 }}>Player stats</div>
@@ -297,10 +264,344 @@ export default function GamePage() {
           })}
         </div>
       </div>
+      </div>
 
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
   )
+}
+
+function MobileGame({
+  code,
+  match,
+  leg,
+  players,
+  currentPlayer,
+  statsByPlayerId,
+  checkoutSuggestion,
+  canSubmit,
+  onSubmit,
+  entryMode,
+  setEntryMode,
+  totalText,
+  setTotalText,
+  total,
+  setTotal,
+  darts,
+  setDarts,
+  finished,
+}: {
+  code: string
+  match: MatchSnapshot | undefined
+  leg: MatchSnapshot['leg'] | undefined
+  players: Player[]
+  currentPlayer: Player | null
+  statsByPlayerId: Record<string, PlayerStats>
+  checkoutSuggestion: { labels: string[] } | null
+  canSubmit: boolean
+  onSubmit: (withDarts?: boolean) => Promise<void>
+  entryMode: 'TOTAL' | 'PER_DART'
+  setEntryMode: (m: 'TOTAL' | 'PER_DART') => void
+  totalText: string
+  setTotalText: (t: string) => void
+  total: number
+  setTotal: (n: number) => void
+  darts: Dart[]
+  setDarts: (d: Dart[]) => void
+  finished: boolean
+}) {
+  const p = currentPlayer
+  const stats = p ? statsByPlayerId[p.id] : undefined
+  const ps = p ? leg?.players?.find((x) => x.playerId === p.id) : undefined
+
+  const last = p ? lastScoreForPlayer(leg?.turns ?? [], p.id) : null
+  const thrown = p ? dartsThrownForPlayer(leg?.turns ?? [], p.id) : 0
+
+  return (
+    <div className="mobileGame">
+      <div className="mobileGameTop">
+        <button
+          className="mobileIconBtn"
+          onClick={() => {
+            if (window.history.length > 1) window.history.back()
+            else window.location.href = '/'
+          }}
+          aria-label="Back"
+        >
+          <svg className="mobileIcon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M15 18l-6-6 6-6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <div className="mobileHeaderTitle">
+          {match?.settings?.setsEnabled ? `FIRST TO ${match.settings.setsToWin} SETS` : `FIRST TO ${match?.settings?.legsToWin ?? 0} LEGS`}
+        </div>
+        <button
+          className="mobileIconBtn"
+          onClick={() => window.dispatchEvent(new Event('dc:openMenu'))}
+          aria-label="Menu"
+        >
+          <svg className="mobileIcon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 7h16M4 12h16M4 17h16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <div className={canSubmit && !finished ? `playerCard playerCardUp` : 'playerCard'}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="row">
+            <span className="pill" style={{ color: 'var(--text)' }}>{p?.name ?? 'Waiting...'}</span>
+            {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
+          </div>
+          {match ? (
+            <span className="pill">
+              {match.settings.startScore} · {match.settings.doubleIn ? 'DI' : 'SI'} · {match.settings.doubleOut ? 'DO' : match.settings.masterOut ? 'MO' : 'SO'}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
+          <div className="playerBigNum">{ps?.remaining ?? '-'}</div>
+          <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
+            <span className="pill">3-dart avg: {stats?.threeDartAvg ?? '-'}</span>
+            <span className="pill">Last score: {last ?? '-'}</span>
+            <span className="pill">Darts thrown: {thrown}</span>
+          </div>
+        </div>
+
+        {checkoutSuggestion ? (
+          <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
+            <span className="pill">Checkout</span>
+            <span className="pill" style={{ color: 'var(--text)' }}>{checkoutSuggestion.labels.join('  ')}</span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="turnBanner">{canSubmit && !finished ? "IT'S YOUR TURN" : finished ? 'FINISHED' : 'WAITING'}</div>
+
+      <MobileTurnEntry
+        entryMode={entryMode}
+        setEntryMode={setEntryMode}
+        totalText={totalText}
+        setTotalText={setTotalText}
+        total={total}
+        setTotal={setTotal}
+        darts={darts}
+        setDarts={setDarts}
+        canSubmit={canSubmit && !finished}
+        onSubmit={() => onSubmit(false)}
+      />
+    </div>
+  )
+}
+
+function lastScoreForPlayer(turns: MatchSnapshot['leg']['turns'], playerId: string): number | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]
+    if (t.playerId === playerId) return t.scoreTotal
+  }
+  return null
+}
+
+function dartsThrownForPlayer(turns: MatchSnapshot['leg']['turns'], playerId: string): number {
+  let sum = 0
+  for (const t of turns) {
+    if (t.playerId !== playerId) continue
+    if (t.input?.mode === 'PER_DART' && Array.isArray(t.input.darts)) sum += t.input.darts.length
+    else if (t.input?.mode === 'TOTAL' && Array.isArray(t.input.darts)) sum += t.input.darts.length
+    else sum += 3
+  }
+  return sum
+}
+
+function MobileTurnEntry({
+  entryMode,
+  setEntryMode,
+  totalText,
+  setTotalText,
+  total,
+  setTotal,
+  darts,
+  setDarts,
+  canSubmit,
+  onSubmit,
+}: {
+  entryMode: 'TOTAL' | 'PER_DART'
+  setEntryMode: (m: 'TOTAL' | 'PER_DART') => void
+  totalText: string
+  setTotalText: (t: string) => void
+  total: number
+  setTotal: (n: number) => void
+  darts: Dart[]
+  setDarts: (d: Dart[]) => void
+  canSubmit: boolean
+  onSubmit: () => void
+}) {
+  const [dartMode, setDartMode] = useState<'S' | 'D' | 'T' | 'DB' | 'SB'>('S')
+  const [dartCursor, setDartCursor] = useState(0)
+
+  const labels = darts.map((d) => dartToLabel(d))
+  const totalFromDarts = darts.reduce((acc, d) => acc + dartPoints(d), 0)
+
+  function resetDarts() {
+    setDarts([
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 1 },
+    ])
+    setDartCursor(0)
+  }
+
+  function setDigit(d: string) {
+    const next = (totalText + d).replace(/^0+(?=\d)/, '').slice(0, 3)
+    setTotalText(next)
+    const n = next === '' ? 0 : Number(next)
+    if (Number.isFinite(n)) setTotal(Math.min(180, n))
+  }
+
+  function backspace() {
+    const next = totalText.slice(0, -1)
+    setTotalText(next)
+    const n = next === '' ? 0 : Number(next)
+    if (Number.isFinite(n)) setTotal(Math.min(180, n))
+  }
+
+  function clear() {
+    setTotalText('')
+    setTotal(0)
+  }
+
+  function miss() {
+    if (entryMode !== 'PER_DART') return
+    const idx = Math.min(2, dartCursor)
+    const out = darts.map((d, i) => (i === idx ? ({ segment: 0, multiplier: 0 } as Dart) : d))
+    setDarts(out)
+    setDartCursor(Math.min(3, dartCursor + 1))
+  }
+
+  function undoDart() {
+    if (entryMode !== 'PER_DART') return
+    const nextCursor = Math.max(0, dartCursor - 1)
+    const idx = Math.min(2, nextCursor)
+    const out = darts.map((d, i) => (i === idx ? ({ segment: 0, multiplier: 0 } as Dart) : d))
+    setDarts(out)
+    setDartCursor(nextCursor)
+  }
+
+  function applySegment(seg: number) {
+    if (entryMode !== 'PER_DART') return
+    const idx = Math.min(2, dartCursor)
+    let d: Dart
+    if (dartMode === 'DB') d = { segment: 25, multiplier: 2 }
+    else if (dartMode === 'SB') d = { segment: 25, multiplier: 1 }
+    else if (dartMode === 'T') d = { segment: seg, multiplier: 3 }
+    else if (dartMode === 'D') d = { segment: seg, multiplier: 2 }
+    else d = { segment: seg, multiplier: 1 }
+
+    const out = darts.map((x, i) => (i === idx ? d : x))
+    setDarts(out)
+    setDartCursor(Math.min(3, dartCursor + 1))
+  }
+
+  return (
+    <div className="col" style={{ gap: 12 }}>
+      <div className="entryBar">
+        <button
+          className="entryToggle"
+          onClick={() => {
+            const next = entryMode === 'TOTAL' ? 'PER_DART' : 'TOTAL'
+            setEntryMode(next)
+            if (next === 'TOTAL') clear()
+            else resetDarts()
+          }}
+          aria-label="Toggle input"
+        >
+          {entryMode === 'TOTAL' ? '123' : 'D'}
+        </button>
+        <div className="entryDisplay">
+          <span className="entryHint">{entryMode === 'TOTAL' ? 'Enter a score' : labels.join('  ')}</span>
+          <span className="entryScore">{entryMode === 'TOTAL' ? total : totalFromDarts}</span>
+        </div>
+        <button className="entrySubmit" onClick={onSubmit} disabled={!canSubmit}>
+          Submit
+        </button>
+      </div>
+
+      {entryMode === 'TOTAL' ? (
+        <div className="col" style={{ gap: 10 }}>
+          <div className="padGrid">
+            {['1','2','3','4','5','6','7','8','9'].map((n) => (
+              <button key={n} className="padKey" onClick={() => setDigit(n)}>
+                {n}
+              </button>
+            ))}
+            <button className="padKey padKeyAlt" onClick={clear}>Clear</button>
+            <button className="padKey" onClick={() => setDigit('0')}>0</button>
+            <button className="padKey padKeyDanger" onClick={backspace}>Undo</button>
+          </div>
+        </div>
+      ) : (
+        <div className="col" style={{ gap: 10 }}>
+          <div className="multTabs">
+            {([
+              ['S', 'Single'],
+              ['D', 'Double'],
+              ['T', 'Treble'],
+              ['DB', 'Bull 50'],
+              ['SB', 'Outer 25'],
+            ] as const).map(([k, label]) => (
+              <button
+                key={k}
+                className={dartMode === k ? 'multTab multTabActive' : 'multTab'}
+                onClick={() => setDartMode(k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="segGrid">
+            {Array.from({ length: 20 }, (_, idx) => idx + 1).map((n) => (
+              <button key={n} className="padKey" onClick={() => applySegment(n)}>
+                {n}
+              </button>
+            ))}
+          </div>
+
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <button className="btn" onClick={undoDart}>Undo dart</button>
+            <button className="btn" onClick={miss}>Miss</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function dartPoints(d: Dart): number {
+  if (d.multiplier === 0) return 0
+  if (d.segment === 25) return d.multiplier === 2 ? 50 : 25
+  return d.segment * d.multiplier
+}
+
+function dartToLabel(d: Dart): string {
+  if (d.multiplier === 0) return 'MISS'
+  if (d.segment === 25) return d.multiplier === 2 ? 'DB' : 'SB'
+  if (d.multiplier === 3) return `T${d.segment}`
+  if (d.multiplier === 2) return `D${d.segment}`
+  return `${d.segment}`
 }
 
 function useMediaQuery(query: string) {
@@ -470,35 +771,32 @@ function PlayerPanel({
   stats: PlayerStats | undefined
 }) {
   const ps = leg?.players?.find((x) => x.playerId === player.id)
+  const last = lastScoreForPlayer(leg?.turns ?? [], player.id)
+  const thrown = dartsThrownForPlayer(leg?.turns ?? [], player.id)
 
   return (
-    <div
-      className="card"
-      style={{
-        padding: 14,
-        background: isCurrent ? 'rgba(125, 211, 252, 0.12)' : 'rgba(0,0,0,0.12)',
-        border: '1px solid rgba(255,255,255,0.12)',
-      }}
-    >
+    <div className={isCurrent ? 'playerCard playerCardUp' : 'playerCard'}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="row" style={{ flexWrap: 'wrap' }}>
           <span className="pill" style={{ color: 'var(--text)' }}>{player.name}</span>
-          {isCurrent ? <span className="pill" style={{ color: 'var(--accent)' }}>UP</span> : null}
+          {isCurrent ? <span className="pill" style={{ color: 'rgba(0,0,0,0.82)', background: 'rgba(255,255,255,0.55)' }}>UP</span> : null}
           {settings?.doubleIn ? (
             <span className="pill" style={{ color: ps?.isIn ? 'var(--good)' : 'var(--muted)' }}>
               {ps?.isIn ? 'IN' : 'NOT IN'}
             </span>
           ) : null}
         </div>
-        <span className="pill" style={{ color: 'var(--text)' }}>Rem: {ps?.remaining ?? '-'}</span>
+        {match?.settings?.setsEnabled ? <span className="pill">Sets: {stats?.setsWon ?? 0}</span> : null}
       </div>
 
-      <div className="row" style={{ flexWrap: 'wrap', marginTop: 10 }}>
-        {match?.settings?.setsEnabled ? <span className="pill">Sets: {stats?.setsWon ?? 0}</span> : null}
-        <span className="pill">Legs: {stats?.legsWon ?? 0}</span>
-        <span className="pill">Avg: {stats?.threeDartAvg ?? '-'}</span>
-        <span className="pill">First 9: {stats?.first9Avg ?? '-'}</span>
-        <span className="pill">CO%: {stats?.checkoutRate == null ? '-' : `${stats.checkoutRate}%`}</span>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
+        <div className="playerBigNum playerBigNumDesktop">{ps?.remaining ?? '-'}</div>
+        <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
+          <span className="pill">Legs: {stats?.legsWon ?? 0}</span>
+          <span className="pill">3-dart avg: {stats?.threeDartAvg ?? '-'}</span>
+          <span className="pill">Last score: {last ?? '-'}</span>
+          <span className="pill">Darts thrown: {thrown}</span>
+        </div>
       </div>
     </div>
   )

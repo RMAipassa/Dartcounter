@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
 
@@ -10,11 +11,16 @@ type BeforeInstallPromptEvent = Event & {
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [serverUrl, setServerUrl] = useState('')
   const [roomCode, setRoomCode] = useState<string | null>(null)
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.matchMedia('(max-width: 520px)').matches
+  })
 
   const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
 
@@ -26,15 +32,30 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setServerUrl(getServerUrl())
 
-    function updateRoomCode() {
-      const p = window.location.pathname
-      const m = p.match(/^\/room\/([^/]+)\/(lobby|game)/i)
-      setRoomCode(m ? m[1].toUpperCase() : null)
+    const mq = window.matchMedia('(max-width: 520px)')
+    const onChange = () => setIsMobile(Boolean(mq.matches))
+    onChange()
+    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange)
+    else mq.addListener(onChange)
+    return () => {
+      if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', onChange)
+      else mq.removeListener(onChange)
     }
+  }, [])
 
-    updateRoomCode()
-    window.addEventListener('popstate', updateRoomCode)
-    return () => window.removeEventListener('popstate', updateRoomCode)
+  useEffect(() => {
+    const m = pathname.match(/^\/room\/([^/]+)\/(lobby|game)/i)
+    setRoomCode(m ? m[1].toUpperCase() : null)
+  }, [pathname, isMobile])
+
+  const hideTopbar = isMobile && Boolean(pathname.match(/^\/room\/[^/]+\/game/i))
+
+  useEffect(() => {
+    function onOpenMenu() {
+      setOpen(true)
+    }
+    window.addEventListener('dc:openMenu', onOpenMenu as any)
+    return () => window.removeEventListener('dc:openMenu', onOpenMenu as any)
   }, [])
 
   useEffect(() => {
@@ -125,14 +146,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div>
-      <div className="topbar">
-        <a className="brand" href="/">
-          Dartcounter
-        </a>
-        <button className="btn" onClick={() => setOpen((v) => !v)} aria-label="Menu">
-          Menu
-        </button>
-      </div>
+      {!hideTopbar ? (
+        <div className="topbar">
+          <a className="brand" href="/">
+            Dartcounter
+          </a>
+          <button className="btn" onClick={() => setOpen((v) => !v)} aria-label="Menu">
+            Menu
+          </button>
+        </div>
+      ) : null}
 
       {open ? (
         <div
