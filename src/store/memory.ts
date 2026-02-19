@@ -20,9 +20,12 @@ export type RoomState = {
   hostSecret: string
   controllerSocketIdByPlayerId: Record<string, string>
   match: X01MatchState
+  emptyDeleteTimer: NodeJS.Timeout | null
 }
 
 const rooms = new Map<RoomCode, RoomState>()
+
+const ROOM_DELETE_DELAY_MS = 120_000
 
 function randomId(bytes: number): string {
   // URL-safe, no padding
@@ -73,6 +76,7 @@ export function createRoom(args: { hostName: string; settings: X01Settings }): R
     hostSecret,
     controllerSocketIdByPlayerId: {},
     match,
+    emptyDeleteTimer: null,
   }
   rooms.set(code, room)
   return room
@@ -113,10 +117,19 @@ export function getRoom(code: RoomCode): RoomState {
 }
 
 export function deleteRoom(code: RoomCode): void {
+  const room = rooms.get(code)
+  if (room?.emptyDeleteTimer) {
+    clearTimeout(room.emptyDeleteTimer)
+    room.emptyDeleteTimer = null
+  }
   rooms.delete(code)
 }
 
 export function addClient(room: RoomState, client: ClientInfo): void {
+  if (room.emptyDeleteTimer) {
+    clearTimeout(room.emptyDeleteTimer)
+    room.emptyDeleteTimer = null
+  }
   room.clients.set(client.socketId, client)
 }
 
@@ -126,6 +139,16 @@ export function getClient(room: RoomState, socketId: string): ClientInfo | null 
 
 export function removeClient(room: RoomState, socketId: string): void {
   room.clients.delete(socketId)
+
+  if (room.clients.size === 0 && !room.emptyDeleteTimer) {
+    room.emptyDeleteTimer = setTimeout(() => {
+      // if the room still exists and still empty, delete
+      const r = rooms.get(room.code)
+      if (!r) return
+      if (r.clients.size !== 0) return
+      rooms.delete(room.code)
+    }, ROOM_DELETE_DELAY_MS)
+  }
 }
 
 export function isRoomEmpty(room: RoomState): boolean {

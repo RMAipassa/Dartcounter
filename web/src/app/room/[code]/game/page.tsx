@@ -740,6 +740,7 @@ function PcPerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dar
 
 function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
   const [active, setActive] = useState<0 | 1 | 2>(0)
+  const [panel, setPanel] = useState<'KIND' | 'SEG'>('KIND')
   const current = darts[active] ?? { segment: 20, multiplier: 1 }
   const kind = kindFromDart(current)
   const needsSeg = kind === 'S' || kind === 'D' || kind === 'T'
@@ -752,6 +753,8 @@ function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d:
   function setKind(nextKind: DartKind) {
     const seg = current.segment === 25 ? 20 : current.segment || 20
     setDart(active, dartFrom(nextKind, seg))
+    if (nextKind === 'S' || nextKind === 'D' || nextKind === 'T') setPanel('SEG')
+    else setPanel('KIND')
   }
 
   function setSegment(seg: number) {
@@ -763,7 +766,7 @@ function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d:
       <div className="help">Tap each dart (no typing).</div>
 
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="pill">Dart {active + 1} of 3</span>
+        <span className="pill">Dart {active + 1} · {kind}{needsSeg ? ` ${current.segment}` : ''}</span>
         <div className="row">
           {[0, 1, 2].map((i) => (
             <button
@@ -777,35 +780,39 @@ function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d:
         </div>
       </div>
 
-      <div className="row" style={{ flexWrap: 'wrap' }}>
-        <button className={kind === 'MISS' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('MISS')}>
-          Miss
-        </button>
-        <button className={kind === 'S' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('S')}>
-          Single
-        </button>
-        <button className={kind === 'D' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('D')}>
-          Double
-        </button>
-        <button className={kind === 'T' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('T')}>
-          Triple
-        </button>
-        <button className={kind === 'SB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('SB')}>
-          SB
-        </button>
-        <button className={kind === 'DB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('DB')}>
-          DB
-        </button>
-      </div>
-
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="pill">Selected: {kind === 'SB' ? 'SB (25)' : kind === 'DB' ? 'DB (50)' : kind}</span>
-        <span className="pill">Seg: {current.segment === 25 ? '-' : current.segment}</span>
+        <button className={panel === 'KIND' ? 'btn btnPrimary' : 'btn'} onClick={() => setPanel('KIND')}>
+          Type
+        </button>
+        <button className={panel === 'SEG' ? 'btn btnPrimary' : 'btn'} onClick={() => setPanel('SEG')} disabled={!needsSeg}>
+          Segment
+        </button>
+        <span className="pill">{needsSeg ? '1-20' : kind === 'SB' ? '25' : kind === 'DB' ? '50' : ''}</span>
       </div>
 
-      {needsSeg ? (
+      {panel === 'KIND' ? (
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <button className={kind === 'MISS' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('MISS')}>
+            Miss
+          </button>
+          <button className={kind === 'S' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('S')}>
+            Single
+          </button>
+          <button className={kind === 'D' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('D')}>
+            Double
+          </button>
+          <button className={kind === 'T' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('T')}>
+            Triple
+          </button>
+          <button className={kind === 'SB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('SB')}>
+            SB
+          </button>
+          <button className={kind === 'DB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('DB')}>
+            DB
+          </button>
+        </div>
+      ) : (
         <div className="col" style={{ gap: 10 }}>
-          <div className="help">Segment (1-20)</div>
           <div className="segGrid">
             {Array.from({ length: 20 }, (_, idx) => idx + 1).map((n) => (
               <button
@@ -818,7 +825,7 @@ function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d:
             ))}
           </div>
         </div>
-      ) : null}
+      )}
 
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <button className="btn" onClick={() => setActive((a) => (a === 0 ? 0 : ((a - 1) as 0 | 1 | 2)))}>

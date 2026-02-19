@@ -222,8 +222,8 @@ io.on('connection', (socket) => {
       clearControllersForSocket(code, socket.id)
       removeClient(room, socket.id)
       socket.leave(roomChannel(code))
-      if (isRoomEmpty(room)) deleteRoom(code)
-      else emitSnapshot(code)
+      // Room deletion is delayed (to allow refresh/rejoin)
+      if (!isRoomEmpty(room)) emitSnapshot(code)
     } catch {
       // ignore
     }
@@ -650,14 +650,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const code = (socket.data as any).roomCode as string | undefined
     if (!code) return
-    try {
-      const room = getRoom(code)
-      removeClient(room, socket.id)
-      if (isRoomEmpty(room)) deleteRoom(code)
-      else emitSnapshot(code)
-    } catch {
-      // ignore
-    }
+    detachFromRoom(code)
   })
 })
 
