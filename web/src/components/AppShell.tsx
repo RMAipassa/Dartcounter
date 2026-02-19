@@ -135,66 +135,84 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {open ? (
-        <div className="menu card" style={{ padding: 12 }}>
-          {roomCode ? (
-            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span className="pill">Room: {roomCode}</span>
-              <button className="btn" onClick={() => { copyRoomCode(); setOpen(false) }}>
-                Copy code
+        <div
+          className="menuOverlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setOpen(false)}
+        >
+          <div className="menuPanel card" style={{ padding: 12 }} onClick={(e) => e.stopPropagation()}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="pill">Menu</span>
+              <button className="btn" onClick={() => setOpen(false)}>
+                Close
               </button>
             </div>
-          ) : null}
 
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <a className="btn" href="/" onClick={() => setOpen(false)}>
-              Home
-            </a>
-            <a className="btn" href="/lobbies" onClick={() => setOpen(false)}>
-              Public lobbies
-            </a>
             {roomCode ? (
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                <span className="pill">Room: {roomCode}</span>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    copyRoomCode()
+                    setOpen(false)
+                  }}
+                >
+                  Copy code
+                </button>
+              </div>
+            ) : null}
+
+            <div className="col" style={{ marginTop: 10 }}>
+              <a className="btn" href="/" onClick={() => setOpen(false)}>
+                Home
+              </a>
+              <a className="btn" href="/lobbies" onClick={() => setOpen(false)}>
+                Public lobbies
+              </a>
+              {roomCode ? (
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setOpen(false)
+                    leaveRoom()
+                  }}
+                >
+                  Leave room
+                </button>
+              ) : null}
+              {roomCode && hostSecret ? (
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setOpen(false)
+                    undoLastTurn()
+                  }}
+                >
+                  Undo last turn
+                </button>
+              ) : null}
+              <button
+                className={deferredPrompt ? 'btn btnPrimary' : 'btn'}
+                onClick={() => {
+                  setOpen(false)
+                  install()
+                }}
+              >
+                Install app
+              </button>
               <button
                 className="btn"
                 onClick={() => {
                   setOpen(false)
-                  leaveRoom()
+                  toggleFullscreen()
                 }}
               >
-                Leave
+                Fullscreen
               </button>
-            ) : null}
-            {roomCode && hostSecret ? (
-              <button
-                className="btn"
-                onClick={() => {
-                  setOpen(false)
-                  undoLastTurn()
-                }}
-              >
-                Undo
-              </button>
-            ) : null}
-            <button
-              className={deferredPrompt ? 'btn btnPrimary' : 'btn'}
-              onClick={() => {
-                setOpen(false)
-                install()
-              }}
-            >
-              Install
-            </button>
-            <button
-              className={canFullscreen ? 'btn' : 'btn'}
-              onClick={() => {
-                setOpen(false)
-                toggleFullscreen()
-              }}
-            >
-              Fullscreen
-            </button>
-          </div>
-          <div className="help" style={{ marginTop: 8 }}>
-            Best fullscreen: use Install (Add to Home Screen).
+              <div className="help">Best fullscreen: use Install (Add to Home Screen).</div>
+            </div>
           </div>
         </div>
       ) : null}

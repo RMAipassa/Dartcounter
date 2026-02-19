@@ -83,7 +83,7 @@ export default function GamePage() {
       : null
 
   const isMobile = useMediaQuery('(max-width: 520px)')
-  const showOnlyCurrent = isMobile || players.length > 3
+  const showOnlyCurrent = players.length > 3
   const visiblePlayers = showOnlyCurrent && currentPlayer ? [currentPlayer] : players
 
   const [scoresTab, setScoresTab] = useState<'RECENT' | 'ALL'>('RECENT')
@@ -113,169 +113,124 @@ export default function GamePage() {
     }
   }
 
-  async function undo() {
-    try {
-      if (!hostSecret) throw new Error('Host secret not found on this device')
-      const socket = getSocket(serverUrl)
-      const res = await socket.emitWithAck('game:undoLastTurn', { hostSecret })
-      if (!res?.ok) throw new Error(res?.message ?? 'Failed')
-    } catch (e: any) {
-      setToast(e?.message ?? String(e))
-      setTimeout(() => setToast(null), 2500)
-    }
-  }
-
-  async function leaveGame() {
-    try {
-      const socket = getSocket(serverUrl)
-      await socket.emitWithAck('room:leave')
-    } catch {
-      // ignore
-    }
-    localStorage.setItem('dc_role', 'SPECTATOR')
-    window.location.href = '/'
-  }
-
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1 className="title">Game</h1>
           <p className="subtitle">
-            Room <span className="pill">{code}</span>{' '}
             {settings ? (
               <span className="pill">
                 {settings.startScore} · {settings.doubleIn ? 'DI' : 'SI'} · {settings.doubleOut ? 'DO' : settings.masterOut ? 'MO' : 'SO'}
               </span>
             ) : null}
-            {match ? (
-              <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span>
-            ) : null}
           </p>
-        </div>
-        <div className="row">
-          <button className="btn" onClick={leaveGame}>
-            Leave game
-          </button>
-          <button className="btn" onClick={undo} disabled={!hostSecret}>
-            Undo
-          </button>
         </div>
       </div>
 
-      <div className="grid2">
-        <div className="card" style={{ padding: 16 }}>
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 16, marginBottom: 6 }}>Scoreboard</div>
-              <div className="help">{showOnlyCurrent ? 'Showing current player only.' : 'Each player has their own table.'}</div>
-            </div>
-            {finished ? <span className="pill" style={{ color: 'var(--good)' }}>Match finished</span> : null}
-          </div>
+      <div className="mobileOnly">
+        <div className="col" style={{ gap: 14 }}>
+          <EnterTurnCard
+            currentPlayer={currentPlayer}
+            checkoutSuggestion={checkoutSuggestion}
+            entryMode={entryMode}
+            setEntryMode={setEntryMode}
+            darts={darts}
+            setDarts={setDarts}
+            totalText={totalText}
+            setTotalText={setTotalText}
+            total={total}
+            setTotal={setTotal}
+            needDarts={needDarts}
+            setNeedDarts={setNeedDarts}
+            submitTurn={submitTurn}
+            settings={settings}
+            finished={finished}
+            canSubmit={currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false}
+          />
 
-          <div className={showOnlyCurrent ? 'col' : 'grid3'} style={{ marginTop: 10 }}>
-            {visiblePlayers.map((p) => (
-              <PlayerPanel
-                key={p.id}
-                player={p}
-                isCurrent={p.id === currentPlayer?.id}
-                leg={leg}
-                settings={settings}
-                match={match}
-                stats={statsByPlayerId[p.id]}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 16, marginBottom: 6 }}>Enter turn</div>
-          <div className="help">
-            {currentPlayer ? (
-              <>Up: <b>{currentPlayer.name}</b></>
-            ) : (
-              <>Waiting for game to start...</>
-            )}
-          </div>
-
-          {checkoutSuggestion ? (
-            <div className="row" style={{ marginTop: 10, justifyContent: 'space-between' }}>
-              <span className="pill">Checkout</span>
-              <span className="pill" style={{ color: 'var(--text)' }}>{checkoutSuggestion.labels.join('  ')}
-              </span>
-            </div>
-          ) : null}
-
-          <div className="col" style={{ marginTop: 10 }}>
-            <div className="row">
-              <button className="btn" onClick={() => setEntryMode('TOTAL')} disabled={entryMode === 'TOTAL'}>
-                Total
-              </button>
-              <button className="btn" onClick={() => setEntryMode('PER_DART')} disabled={entryMode === 'PER_DART'}>
-                3 darts
-              </button>
+          <div className="card" style={{ padding: 16 }}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 16, marginBottom: 6 }}>Scoreboard</div>
+                <div className="help">Player · legs · avg</div>
+              </div>
+              {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
             </div>
 
-            {entryMode === 'PER_DART' ? (
-              <PerDartEditor darts={darts} onChange={setDarts} />
-            ) : (
-              <div className="col">
-                <label className="help">Total (0-180)</label>
-                <input
-                  className="input"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={totalText}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 3)
-                    setTotalText(v)
-                    const n = v === '' ? 0 : Number(v)
-                    if (Number.isFinite(n)) setTotal(Math.min(180, n))
-                  }}
-                />
-
-                <div className="mobileOnly">
-                  <NumberPad
-                    valueText={totalText}
-                    onChangeText={(v) => {
-                      const next = v.replace(/[^0-9]/g, '').slice(0, 3)
-                      setTotalText(next)
-                      const n = next === '' ? 0 : Number(next)
-                      if (Number.isFinite(n)) setTotal(Math.min(180, n))
+            <div className="col" style={{ marginTop: 10, gap: 10 }}>
+              {players.map((p) => {
+                const stats = statsByPlayerId[p.id]
+                const isCurrent = p.id === currentPlayer?.id
+                return (
+                  <div
+                    key={p.id}
+                    className="row"
+                    style={{
+                      justifyContent: 'space-between',
+                      padding: 10,
+                      borderRadius: 12,
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: isCurrent ? 'rgba(125, 211, 252, 0.12)' : 'rgba(0,0,0,0.10)',
                     }}
-                    onEnter={() => submitTurn(false)}
-                  />
-                </div>
-                {needDarts ? (
-                  <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.18)' }}>
-                    <div className="help" style={{ marginBottom: 8 }}>
-                      Double-in is enabled and you are not in yet; enter darts so the server can verify the double-in.
-                    </div>
-                    <PerDartEditor darts={darts} onChange={setDarts} />
-                    <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <button className="btn" onClick={() => setNeedDarts(null)}>
-                        Cancel
-                      </button>
-                      <button className="btn btnPrimary" onClick={() => submitTurn(true)}>
-                        Submit with darts
-                      </button>
+                  >
+                    <span className="pill" style={{ color: 'var(--text)' }}>{p.name}</span>
+                    <div className="row" style={{ gap: 8 }}>
+                      <span className="pill">Legs: {stats?.legsWon ?? 0}</span>
+                      <span className="pill">Avg: {stats?.threeDartAvg ?? '-'}</span>
                     </div>
                   </div>
-                ) : null}
-              </div>
-            )}
-
-            <button
-              className="btn btnPrimary"
-              onClick={() => submitTurn(false)}
-              disabled={!settings || !currentPlayer || finished || !canSubmitForCurrent(code, currentPlayer.id)}
-            >
-              Submit turn
-            </button>
-            {!finished && currentPlayer && !canSubmitForCurrent(code, currentPlayer.id) ? (
-              <div className="help">Waiting for {currentPlayer.name} to submit.</div>
-            ) : null}
+                )
+              })}
+            </div>
           </div>
+        </div>
+      </div>
+
+      <div className="desktopOnly">
+        <div className="grid2">
+          <div className="card" style={{ padding: 16 }}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 16, marginBottom: 6 }}>Scoreboard</div>
+                <div className="help">{showOnlyCurrent ? 'Showing current player only.' : 'Each player has their own table.'}</div>
+              </div>
+              {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
+            </div>
+
+            <div className={showOnlyCurrent ? 'col' : 'grid3'} style={{ marginTop: 10 }}>
+              {visiblePlayers.map((p) => (
+                <PlayerPanel
+                  key={p.id}
+                  player={p}
+                  isCurrent={p.id === currentPlayer?.id}
+                  leg={leg}
+                  settings={settings}
+                  match={match}
+                  stats={statsByPlayerId[p.id]}
+                />
+              ))}
+            </div>
+          </div>
+
+          <EnterTurnCard
+            currentPlayer={currentPlayer}
+            checkoutSuggestion={checkoutSuggestion}
+            entryMode={entryMode}
+            setEntryMode={setEntryMode}
+            darts={darts}
+            setDarts={setDarts}
+            totalText={totalText}
+            setTotalText={setTotalText}
+            total={total}
+            setTotal={setTotal}
+            needDarts={needDarts}
+            setNeedDarts={setNeedDarts}
+            submitTurn={submitTurn}
+            settings={settings}
+            finished={finished}
+            canSubmit={currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false}
+          />
         </div>
       </div>
 

@@ -79,6 +79,31 @@ a {
   }
 }
 
+.menuOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.menuPanel {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, calc(100% - 28px));
+  top: 76px;
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+}
+
+@media (max-width: 520px) {
+  .menuPanel {
+    top: auto;
+    bottom: 12px;
+    max-height: calc(100vh - 92px);
+  }
+}
+
 @media (max-width: 520px) {
   .container {
     padding: 14px;
