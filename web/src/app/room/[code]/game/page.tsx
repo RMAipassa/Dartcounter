@@ -378,6 +378,127 @@ function canSubmitForCurrent(code: string, currentPlayerId: string): boolean {
   }
 }
 
+function EnterTurnCard({
+  currentPlayer,
+  checkoutSuggestion,
+  entryMode,
+  setEntryMode,
+  darts,
+  setDarts,
+  totalText,
+  setTotalText,
+  total,
+  setTotal,
+  needDarts,
+  setNeedDarts,
+  submitTurn,
+  settings,
+  finished,
+  canSubmit,
+}: {
+  currentPlayer: Player | null
+  checkoutSuggestion: { labels: string[] } | null
+  entryMode: 'TOTAL' | 'PER_DART'
+  setEntryMode: (m: 'TOTAL' | 'PER_DART') => void
+  darts: Dart[]
+  setDarts: (d: Dart[]) => void
+  totalText: string
+  setTotalText: (t: string) => void
+  total: number
+  setTotal: (n: number) => void
+  needDarts: null | 'DOUBLE_IN'
+  setNeedDarts: (v: null | 'DOUBLE_IN') => void
+  submitTurn: (withDarts?: boolean) => Promise<void>
+  settings: MatchSnapshot['settings'] | undefined
+  finished: boolean
+  canSubmit: boolean
+}) {
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div style={{ fontSize: 16, marginBottom: 6 }}>Enter turn</div>
+      <div className="help">
+        {currentPlayer ? (
+          <>Up: <b>{currentPlayer.name}</b></>
+        ) : (
+          <>Waiting for game to start...</>
+        )}
+      </div>
+
+      {checkoutSuggestion ? (
+        <div className="row" style={{ marginTop: 10, justifyContent: 'space-between' }}>
+          <span className="pill">Checkout</span>
+          <span className="pill" style={{ color: 'var(--text)' }}>{checkoutSuggestion.labels.join('  ')}</span>
+        </div>
+      ) : null}
+
+      <div className="col" style={{ marginTop: 10 }}>
+        <div className="row">
+          <button className="btn" onClick={() => setEntryMode('TOTAL')} disabled={entryMode === 'TOTAL'}>
+            Total
+          </button>
+          <button className="btn" onClick={() => setEntryMode('PER_DART')} disabled={entryMode === 'PER_DART'}>
+            3 darts
+          </button>
+        </div>
+
+        {entryMode === 'PER_DART' ? (
+          <PerDartEditor darts={darts} onChange={setDarts} />
+        ) : (
+          <div className="col">
+            <label className="help">Total (0-180)</label>
+            <input
+              className="input"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={totalText}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 3)
+                setTotalText(v)
+                const n = v === '' ? 0 : Number(v)
+                if (Number.isFinite(n)) setTotal(Math.min(180, n))
+              }}
+            />
+
+            <div className="mobileOnly">
+              <NumberPad
+                valueText={totalText}
+                onChangeText={(v) => {
+                  const next = v.replace(/[^0-9]/g, '').slice(0, 3)
+                  setTotalText(next)
+                  const n = next === '' ? 0 : Number(next)
+                  if (Number.isFinite(n)) setTotal(Math.min(180, n))
+                }}
+                onEnter={() => submitTurn(false)}
+              />
+            </div>
+            {needDarts ? (
+              <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.18)' }}>
+                <div className="help" style={{ marginBottom: 8 }}>
+                  Double-in is enabled and you are not in yet; enter darts so the server can verify the double-in.
+                </div>
+                <PerDartEditor darts={darts} onChange={setDarts} />
+                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                  <button className="btn" onClick={() => setNeedDarts(null)}>
+                    Cancel
+                  </button>
+                  <button className="btn btnPrimary" onClick={() => submitTurn(true)}>
+                    Submit with darts
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        <button className="btn btnPrimary" onClick={() => submitTurn(false)} disabled={!settings || !currentPlayer || finished || !canSubmit}>
+          Submit turn
+        </button>
+        {!finished && currentPlayer && !canSubmit ? <div className="help">Waiting for {currentPlayer.name} to submit.</div> : null}
+      </div>
+    </div>
+  )
+}
+
 function PlayerPanel({
   player,
   isCurrent,

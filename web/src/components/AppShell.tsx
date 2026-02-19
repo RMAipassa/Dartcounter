@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { getServerUrl } from '@/lib/config'
+import { getSocket } from '@/lib/socket'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -11,10 +13,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [serverUrl, setServerUrl] = useState('')
+  const [roomCode, setRoomCode] = useState<string | null>(null)
+
+  const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
 
   const canFullscreen = useMemo(() => {
     if (typeof document === 'undefined') return false
     return Boolean((document.documentElement as any)?.requestFullscreen)
+  }, [])
+
+  useEffect(() => {
+    setServerUrl(getServerUrl())
+
+    function updateRoomCode() {
+      const p = window.location.pathname
+      const m = p.match(/^\/room\/([^/]+)\/(lobby|game)/i)
+      setRoomCode(m ? m[1].toUpperCase() : null)
+    }
+
+    updateRoomCode()
+    window.addEventListener('popstate', updateRoomCode)
+    return () => window.removeEventListener('popstate', updateRoomCode)
   }, [])
 
   useEffect(() => {
@@ -66,6 +86,43 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function leaveRoom() {
+    try {
+      const socket = getSocket(serverUrl)
+      await socket.emitWithAck('room:leave')
+    } catch {
+      // ignore
+    }
+    localStorage.setItem('dc_role', 'SPECTATOR')
+    window.location.href = '/'
+  }
+
+  async function undoLastTurn() {
+    try {
+      if (!hostSecret) throw new Error('Host secret missing on this device')
+      const socket = getSocket(serverUrl)
+      const res = await socket.emitWithAck('game:undoLastTurn', { hostSecret })
+      if (!res?.ok) throw new Error(res?.message ?? 'Undo failed')
+      setToast('Undid last turn.')
+      setTimeout(() => setToast(null), 1500)
+    } catch (e: any) {
+      setToast(e?.message ?? 'Undo failed')
+      setTimeout(() => setToast(null), 2500)
+    }
+  }
+
+  async function copyRoomCode() {
+    try {
+      if (!roomCode) return
+      await navigator.clipboard.writeText(roomCode)
+      setToast('Copied room code.')
+      setTimeout(() => setToast(null), 1200)
+    } catch {
+      setToast('Copy not supported.')
+      setTimeout(() => setToast(null), 2000)
+    }
+  }
+
   return (
     <div>
       <div className="topbar">
@@ -79,6 +136,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       {open ? (
         <div className="menu card" style={{ padding: 12 }}>
+          {roomCode ? (
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span className="pill">Room: {roomCode}</span>
+              <button className="btn" onClick={() => { copyRoomCode(); setOpen(false) }}>
+                Copy code
+              </button>
+            </div>
+          ) : null}
+
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <a className="btn" href="/" onClick={() => setOpen(false)}>
               Home
@@ -86,6 +152,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <a className="btn" href="/lobbies" onClick={() => setOpen(false)}>
               Public lobbies
             </a>
+            {roomCode ? (
+              <button
+                className="btn"
+                onClick={() => {
+                  setOpen(false)
+                  leaveRoom()
+                }}
+              >
+                Leave
+              </button>
+            ) : null}
+            {roomCode && hostSecret ? (
+              <button
+                className="btn"
+                onClick={() => {
+                  setOpen(false)
+                  undoLastTurn()
+                }}
+              >
+                Undo
+              </button>
+            ) : null}
             <button
               className={deferredPrompt ? 'btn btnPrimary' : 'btn'}
               onClick={() => {
