@@ -14,17 +14,17 @@ set npm_config_production=false
 echo.
 echo Installing dependencies...
 call npm install
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto :fail
 
 echo.
 echo Building...
 call npm run build:all
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto :fail
 
 if not exist "dist\server.js" (
   echo.
   echo Missing dist\server.js (build failed?)
-  exit /b 1
+  goto :fail
 )
 
 echo.
@@ -34,3 +34,12 @@ start "" "http://localhost:%PORT%/"
 
 set NODE_ENV=production
 node "dist\server.js"
+
+exit /b 0
+
+:fail
+echo.
+echo [dartcounter] FAILED.
+echo Run this from CMD to see the full output.
+pause
+exit /b 1

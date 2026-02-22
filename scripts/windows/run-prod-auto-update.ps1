@@ -5,6 +5,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+trap {
+  Write-Host ""
+  Write-Host "[dartcounter] ERROR: $($_.Exception.Message)" -ForegroundColor Red
+  Write-Host ""
+  Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+  Write-Host ""
+  Read-Host 'Press Enter to close'
+  exit 1
+}
+
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
 $env:PORT = "$Port"
