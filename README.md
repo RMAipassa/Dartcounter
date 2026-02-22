@@ -32,6 +32,33 @@ Windows shortcuts:
 - Dev: `run-dev.cmd`
 - Prod (build + start): `run-prod.cmd` (uses `PORT` env var, default `7777`)
 
+## Auto-update (Windows)
+
+If you run the app on a Windows PC and want it to auto-update from GitHub:
+
+1) Install pm2 once:
+
+```bat
+npm i -g pm2
+```
+
+2) Start the app under pm2:
+
+```bat
+scripts\windows\run-prod-pm2.cmd
+```
+
+3) Auto-pull/build/restart every 30s (polling):
+
+```bat
+scripts\windows\watch-updates.cmd
+```
+
+Notes:
+
+- This expects your repo has a remote configured and an upstream branch.
+- The update script uses `git pull --ff-only` and will fail if local changes exist.
+
 Web uses `NEXT_PUBLIC_SERVER_URL` (defaults to `http://localhost:3001`). See `web/.env.example`.
 
 ## Single-process (one port) hosting

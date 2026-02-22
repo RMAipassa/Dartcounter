@@ -25,6 +25,9 @@ Desktop.ini
 logs/
 *.log
 
+# Update lock
+.update-lock/
+
 # Local tooling
 .vscode/
 .idea/
