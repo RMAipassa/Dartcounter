@@ -34,30 +34,24 @@ Windows shortcuts:
 
 ## Auto-update (Windows)
 
-If you run the app on a Windows PC and want it to auto-update from GitHub:
+If you run the app on a Windows PC and want it to auto-update from GitHub (polling every 30 seconds):
 
-1) Install pm2 once:
+Run production:
 
 ```bat
-npm i -g pm2
+scripts\windows\run-prod-with-tunnel.cmd
 ```
 
-2) Start the app under pm2:
+Auto-pull/build/restart loop:
 
 ```bat
-scripts\windows\run-prod-pm2.cmd
-```
-
-3) Auto-pull/build/restart every 30s (polling):
-
-```bat
-scripts\windows\watch-updates.cmd
+scripts\windows\run-prod-auto-update.cmd
 ```
 
 Notes:
 
-- This expects your repo has a remote configured and an upstream branch.
-- The update script uses `git pull --ff-only` and will fail if local changes exist.
+- Requires `git` in PATH and an upstream branch configured.
+- Uses `git pull --ff-only` and will skip updates if the working tree is dirty.
 
 Web uses `NEXT_PUBLIC_SERVER_URL` (defaults to `http://localhost:3001`). See `web/.env.example`.
 
