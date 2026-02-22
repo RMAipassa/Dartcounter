@@ -57,6 +57,7 @@ if errorlevel 1 (
 )
 
 echo Installing deps...
+set npm_config_production=false
 call npm install
 if errorlevel 1 exit /b 1
 

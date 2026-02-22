@@ -6,7 +6,9 @@ echo [dartcounter] run-prod-pm2 starting...
 echo Working dir: %CD%
 
 if "%PORT%"=="" set PORT=7777
-if "%NODE_ENV%"=="" set NODE_ENV=production
+
+REM Ensure devDependencies are installed for build
+set npm_config_production=false
 
 where node >nul 2>nul || (echo Node not found in PATH & exit /b 1)
 where npm >nul 2>nul || (echo npm not found in PATH & exit /b 1)
@@ -32,6 +34,7 @@ if errorlevel 1 (
 )
 
 echo Starting (pm2) on port %PORT%...
+set NODE_ENV=production
 pm2 start dist/server.js --name dartcounter --update-env
 pm2 save
 
