@@ -15,7 +15,7 @@ trap {
   exit 1
 }
 
-Set-Location (Split-Path $PSScriptRoot -Parent)
+Set-Location (Resolve-Path (Join-Path $PSScriptRoot '..\..'))
 
 $env:PORT = "$Port"
 $env:NODE_ENV = 'production'
@@ -29,6 +29,7 @@ function Ensure-Dependencies {
     Write-Info 'Installing dependencies (including devDependencies for build)...'
     $env:npm_config_production = 'false'
     npm install
+    if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
   }
 }
 
@@ -36,6 +37,7 @@ function Build-App {
   Write-Info 'Building...'
   $env:npm_config_production = 'false'
   npm run build:all
+  if ($LASTEXITCODE -ne 0) { throw 'build failed (npm run build:all)' }
 }
 
 function Start-Server {

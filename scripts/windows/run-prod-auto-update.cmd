@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-cd /d "%~dp0.."
+cd /d "%~dp0..\.."
 
 REM Runs the production server and auto-pulls updates.
 REM Requires: git in PATH and an upstream branch configured.

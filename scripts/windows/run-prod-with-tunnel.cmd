@@ -4,7 +4,7 @@ setlocal
 REM Builds + runs Dartcounter production server on port 7777.
 REM (Tunnel / domain mapping managed separately by you.)
 
-cd /d "%~dp0.."
+cd /d "%~dp0..\.."
 
 if "%PORT%"=="" set PORT=7777
 
