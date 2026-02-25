@@ -370,6 +370,7 @@ export default function GamePage() {
         </div>
       </div>
 
+      <div className="desktopOnly">
       <div className="card" style={{ padding: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="row" style={{ flexWrap: 'wrap' }}>
@@ -436,6 +437,7 @@ export default function GamePage() {
           </div>
         ) : null}
       </div>
+      </div>
 
       <div className="mobileOnly fullBleed">
         <MobileGame
@@ -460,6 +462,9 @@ export default function GamePage() {
           setTotal={setTotal}
           darts={darts}
           setDarts={setDarts}
+          onVoiceInput={toggleVoiceInput}
+          voiceSupported={voiceSupported}
+          voiceListening={voiceListening}
           finished={finished}
         />
       </div>
@@ -608,6 +613,9 @@ function MobileGame({
   setTotal,
   darts,
   setDarts,
+  onVoiceInput,
+  voiceSupported,
+  voiceListening,
   finished,
 }: {
   code: string
@@ -631,6 +639,9 @@ function MobileGame({
   setTotal: (n: number) => void
   darts: Dart[]
   setDarts: (d: Dart[]) => void
+  onVoiceInput: () => void
+  voiceSupported: boolean
+  voiceListening: boolean
   finished: boolean
 }) {
   const p = currentPlayer
@@ -741,6 +752,9 @@ function MobileGame({
         setTotal={setTotal}
         darts={darts}
         setDarts={setDarts}
+        onVoiceInput={onVoiceInput}
+        voiceSupported={voiceSupported}
+        voiceListening={voiceListening}
         canSubmit={canSubmit && !finished}
         onSubmit={() => onSubmit(false)}
       />
@@ -778,6 +792,9 @@ function MobileTurnEntry({
   setTotal,
   darts,
   setDarts,
+  onVoiceInput,
+  voiceSupported,
+  voiceListening,
   canSubmit,
   onSubmit,
 }: {
@@ -791,6 +808,9 @@ function MobileTurnEntry({
   setTotal: (n: number) => void
   darts: Dart[]
   setDarts: (d: Dart[]) => void
+  onVoiceInput: () => void
+  voiceSupported: boolean
+  voiceListening: boolean
   canSubmit: boolean
   onSubmit: () => void
 }) {
@@ -917,6 +937,15 @@ function MobileTurnEntry({
           title={perDartOnly ? 'Autodarts connected: per-dart only' : undefined}
         >
           {perDartOnly ? 'D' : entryMode === 'TOTAL' ? '123' : 'D'}
+        </button>
+        <button
+          className="entryMic"
+          onClick={onVoiceInput}
+          aria-label={voiceListening ? 'Stop voice input' : 'Start voice input'}
+          disabled={!voiceSupported}
+          title={voiceSupported ? undefined : 'Voice input not supported in this browser'}
+        >
+          {voiceListening ? 'Stop' : 'Mic'}
         </button>
         <div className="entryDisplay">
           <span className="entryHint">{entryMode === 'TOTAL' ? 'Enter a score' : labels.join('  ')}</span>

@@ -394,6 +394,19 @@ a {
   font-weight: 700;
 }
 
+.entryMic {
+  width: 72px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.18);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.entryMic:disabled {
+  opacity: 0.45;
+}
+
 .entryDisplay {
   flex: 1;
   border-radius: 18px;
