@@ -15,7 +15,21 @@ export default function LobbyPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [newPlayer, setNewPlayer] = useState('')
   const [startingPlayerIndex, setStartingPlayerIndex] = useState(0)
+  const [isMobile, setIsMobile] = useState(false)
   const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(max-width: 520px)')
+    const onChange = () => setIsMobile(Boolean(mq.matches))
+    onChange()
+    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange)
+    else mq.addListener(onChange)
+    return () => {
+      if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', onChange)
+      else mq.removeListener(onChange)
+    }
+  }, [])
 
   useEffect(() => {
     const socket = getSocket(serverUrl)
@@ -41,13 +55,15 @@ export default function LobbyPage() {
       setTimeout(() => setToast(null), 2500)
     })
 
-    const name = localStorage.getItem('dc_name') ?? 'Guest'
+    const name = localStorage.getItem('dc_authDisplayName') || localStorage.getItem('dc_name') || 'Guest'
     const role = localStorage.getItem('dc_role')
+    const authToken = localStorage.getItem('dc_authToken')
     socket
       .emitWithAck('room:join', {
         code,
         name,
         hostSecret: hostSecret ?? undefined,
+        authToken: authToken ?? undefined,
         asSpectator: role === 'SPECTATOR',
       })
       .then((res: any) => {
@@ -122,6 +138,11 @@ export default function LobbyPage() {
   const players = match?.players ?? []
   const settings = match?.settings
   const locked = Boolean(match?.lockedAt)
+  const autodarts = snap?.room?.autodarts
+  const autodartsActiveUserId = snap?.room?.autodartsActiveUserId ?? null
+  const autodartsActiveClient = autodartsActiveUserId
+    ? (snap?.clients ?? []).find((c) => c.userId === autodartsActiveUserId)
+    : null
   const myName = typeof window !== 'undefined' ? (localStorage.getItem('dc_name') ?? '') : ''
   const iAmPlayer = myName ? players.some((p) => p.name.toLowerCase() === myName.toLowerCase()) : false
   const spectators = (snap?.clients ?? [])
@@ -145,8 +166,8 @@ export default function LobbyPage() {
         </div>
       </div>
 
-      <div className="grid2">
-        <div className="card" style={{ padding: 16 }}>
+      <div className="grid2 lobbyGrid">
+        <div className="card lobbyPlayersCard" style={{ padding: 16 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: 16, marginBottom: 6 }}>Players</div>
@@ -158,9 +179,9 @@ export default function LobbyPage() {
           <div className="col" style={{ marginTop: 10 }}>
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="pill">You are: {iAmPlayer ? 'Player' : 'Spectator'}</span>
-              <div className="row">
+              <div className="row lobbyRoleActions">
                 <button
-                  className="btn"
+                  className="btn lobbyActionBtn"
                   disabled={locked || match?.status !== 'LOBBY' || iAmPlayer}
                   onClick={async () => {
                     const socket = getSocket(serverUrl)
@@ -172,7 +193,7 @@ export default function LobbyPage() {
                   Switch to player
                 </button>
                 <button
-                  className="btn"
+                  className="btn lobbyActionBtn"
                   disabled={locked || match?.status !== 'LOBBY' || !iAmPlayer}
                   onClick={async () => {
                     const socket = getSocket(serverUrl)
@@ -207,7 +228,7 @@ export default function LobbyPage() {
 
             <hr className="hr" />
 
-            <div className="row">
+            <div className="row lobbyAddPlayerRow">
               <input
                 className="input"
                 value={newPlayer}
@@ -216,7 +237,7 @@ export default function LobbyPage() {
                 disabled={!isHost || locked || match?.status !== 'LOBBY'}
               />
               <button
-                className="btn"
+                className="btn lobbyActionBtn"
                 onClick={addPlayer}
                 disabled={!isHost || locked || !newPlayer.trim() || match?.status !== 'LOBBY'}
               >
@@ -226,7 +247,7 @@ export default function LobbyPage() {
           </div>
         </div>
 
-        <div className="card" style={{ padding: 16 }}>
+        <div className="card lobbyMetaCard" style={{ padding: 16 }}>
           <div style={{ fontSize: 16, marginBottom: 6 }}>Lobby</div>
           <div className="help">Visibility + settings lock after the first recorded turn.</div>
 
@@ -284,30 +305,81 @@ export default function LobbyPage() {
 
           <hr className="hr" style={{ marginTop: 14 }} />
 
-          <div className="col">
-            <div className="help">Starting player</div>
+          <div style={{ fontSize: 16, marginBottom: 6 }}>Autodarts</div>
+          <div className="help">Each signed-in player can set a personal board on their account page.</div>
+          <div className="row" style={{ marginTop: 8 }}>
+            <a className="btn" href="/autodarts" target="_blank" rel="noreferrer">
+              Autodarts setup guide
+            </a>
+            <a className="btn" href="/account" target="_blank" rel="noreferrer">
+              Account autodarts settings
+            </a>
+          </div>
+
+          <div className="col" style={{ marginTop: 10 }}>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <span className="pill">Status: {autodarts?.status ?? 'DISCONNECTED'}</span>
+              <span className="pill">Runtime: {autodarts?.runtimeMode ?? 'MOCK'}</span>
+              <span className="pill">Device: {autodarts?.deviceId ?? 'none'}</span>
+              <span className="pill">Mode: {autodarts?.mockMode ?? '-'}</span>
+              <span className="pill">Active player: {autodartsActiveClient?.name ?? 'none'}</span>
+            </div>
+
+            {autodarts?.lastError ? <div className="help" style={{ color: 'var(--bad)' }}>Error: {autodarts.lastError}</div> : null}
+          </div>
+
+          {!isMobile ? (
+            <>
+              <hr className="hr" style={{ marginTop: 14 }} />
+
+              <div className="col">
+                <div className="help">Starting player</div>
+                <select
+                  className="select"
+                  value={startingPlayerIndex}
+                  onChange={(e) => setStartingPlayerIndex(Number(e.target.value))}
+                  disabled={!isHost || match?.status !== 'LOBBY' || players.length === 0}
+                >
+                  {players.map((p, idx) => (
+                    <option key={p.id} value={idx}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn btnPrimary"
+                  onClick={startGame}
+                  disabled={!isHost || match?.status !== 'LOBBY' || players.length === 0}
+                >
+                  Start game
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      {isMobile && isHost ? (
+        <div className="card lobbyMobileStartBar" style={{ padding: 12 }}>
+          <div className="row" style={{ alignItems: 'stretch' }}>
             <select
               className="select"
               value={startingPlayerIndex}
               onChange={(e) => setStartingPlayerIndex(Number(e.target.value))}
-              disabled={!isHost || match?.status !== 'LOBBY' || players.length === 0}
+              disabled={match?.status !== 'LOBBY' || players.length === 0}
             >
               {players.map((p, idx) => (
                 <option key={p.id} value={idx}>
-                  {p.name}
+                  Start: {p.name}
                 </option>
               ))}
             </select>
-            <button
-              className="btn btnPrimary"
-              onClick={startGame}
-              disabled={!isHost || match?.status !== 'LOBBY' || players.length === 0}
-            >
+            <button className="btn btnPrimary lobbyStartBtn" onClick={startGame} disabled={match?.status !== 'LOBBY' || players.length === 0}>
               Start game
             </button>
           </div>
         </div>
-      </div>
+      ) : null}
 
       {toast ? <div className="toast">{toast}</div> : null}
     </div>

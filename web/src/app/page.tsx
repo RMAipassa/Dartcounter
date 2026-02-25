@@ -19,8 +19,10 @@ const defaultSettings: X01Settings = {
 
 export default function HomePage() {
   const router = useRouter()
+  const [isMobile, setIsMobile] = useState(false)
   const [serverUrl, setServerUrl] = useState<string>('')
   const [name, setName] = useState('')
+  const [authDisplayName, setAuthDisplayName] = useState<string | null>(null)
   const [joinCode, setJoinCode] = useState('')
   const [hostSecret, setHostSecret] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -32,16 +34,38 @@ export default function HomePage() {
 
   useEffect(() => {
     setServerUrl(getServerUrl())
+    const authDisplayName = localStorage.getItem('dc_authDisplayName')
+    if (authDisplayName) {
+      setAuthDisplayName(authDisplayName)
+      setName(authDisplayName)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(max-width: 520px)')
+    const onChange = () => setIsMobile(Boolean(mq.matches))
+    onChange()
+    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange)
+    else mq.addListener(onChange)
+    return () => {
+      if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', onChange)
+      else mq.removeListener(onChange)
+    }
+  }, [])
+
+  const effectiveName = authDisplayName?.trim() ? authDisplayName : name
 
   async function createRoom() {
     setErr(null)
     setCreating(true)
     try {
       const socket = getSocket(serverUrl)
-      const res = await socket.emitWithAck('room:create', { name, settings, title, isPublic })
+      const authToken = localStorage.getItem('dc_authToken') ?? undefined
+      const res = await socket.emitWithAck('room:create', { name: effectiveName, authToken, settings, title, isPublic })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to create room')
-      localStorage.setItem('dc_name', name)
+      localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_hostSecret', res.hostSecret)
       localStorage.setItem('dc_role', res.role ?? 'PLAYER')
       setHostSecret(res.hostSecret)
@@ -59,9 +83,10 @@ export default function HomePage() {
     try {
       const socket = getSocket(serverUrl)
       const code = joinCode.trim().toUpperCase()
-      const res = await socket.emitWithAck('room:join', { code, name, asSpectator: false })
+      const authToken = localStorage.getItem('dc_authToken') ?? undefined
+      const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator: false })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
-      localStorage.setItem('dc_name', name)
+      localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_role', res.role ?? 'PLAYER')
       router.push(`/room/${code}/lobby`)
     } catch (e: any) {
@@ -77,9 +102,10 @@ export default function HomePage() {
     try {
       const socket = getSocket(serverUrl)
       const code = joinCode.trim().toUpperCase()
-      const res = await socket.emitWithAck('room:join', { code, name, asSpectator: true })
+      const authToken = localStorage.getItem('dc_authToken') ?? undefined
+      const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator: true })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
-      localStorage.setItem('dc_name', name)
+      localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_role', res.role ?? 'SPECTATOR')
       router.push(`/room/${code}/lobby`)
     } catch (e: any) {
@@ -94,18 +120,27 @@ export default function HomePage() {
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div>
           <h1 className="title">Dartcounter Web</h1>
-          <p className="subtitle">Create a room, invite friends, keep score in realtime.</p>
+          <p className="subtitle">
+            {isMobile ? 'Quick join or create a room and start scoring.' : 'Create a room, invite friends, keep score in realtime.'}
+          </p>
         </div>
         <span className="pill">Server: {serverUrl || 'auto'}</span>
       </div>
 
-      <div className="grid2">
-        <div className="card" style={{ padding: 16 }}>
+      <div className="grid2 homeGrid">
+        <div className="card homeCreateCard" style={{ padding: 16 }}>
           <div className="col">
-            <div className="col">
-              <label className="help">Your name</label>
-              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ruben" />
-            </div>
+            {authDisplayName ? (
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div className="help">Signed in name</div>
+                <span className="pill" style={{ color: 'var(--text)' }}>{authDisplayName}</span>
+              </div>
+            ) : (
+              <div className="col">
+                <label className="help">Your name</label>
+                <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ruben" />
+              </div>
+            )}
 
             <hr className="hr" />
 
@@ -133,7 +168,15 @@ export default function HomePage() {
                   </label>
                 </div>
               </div>
-      <div className="grid2">
+              <div className="grid2">
+                <div className="col" style={{ gridColumn: '1 / -1' }}>
+                  <label className="help">Quick presets</label>
+                  <div className="row homePresetRow">
+                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...s, startScore: 301 }))}>301</button>
+                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...s, startScore: 501 }))}>501</button>
+                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...s, startScore: 701 }))}>701</button>
+                  </div>
+                </div>
                 <div className="col">
                   <label className="help">Start score</label>
                   <input
@@ -233,33 +276,40 @@ export default function HomePage() {
               </div>
             </div>
 
-            <button className="btn btnPrimary" disabled={creating || !name.trim()} onClick={createRoom}>
+            <button className="btn btnPrimary" disabled={creating || !effectiveName.trim()} onClick={createRoom}>
               {creating ? 'Creating...' : 'Create room'}
             </button>
           </div>
         </div>
 
-        <div className="card" style={{ padding: 16 }}>
+        <div className="card homeJoinCard" style={{ padding: 16 }}>
           <div className="col">
-            <div className="col">
-              <label className="help">Your name</label>
-              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ruben" />
-            </div>
+            {authDisplayName ? (
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div className="help">Signed in name</div>
+                <span className="pill" style={{ color: 'var(--text)' }}>{authDisplayName}</span>
+              </div>
+            ) : (
+              <div className="col">
+                <label className="help">Your name</label>
+                <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ruben" />
+              </div>
+            )}
 
             <div className="col">
               <label className="help">Room code</label>
               <input
                 className="input"
                 value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 placeholder="AB12CD"
               />
             </div>
-            <div className="row">
-              <button className="btn" disabled={joining || !name.trim() || !joinCode.trim()} onClick={joinRoom}>
+            <div className="row homeJoinActions">
+              <button className="btn" disabled={joining || !effectiveName.trim() || !joinCode.trim()} onClick={joinRoom}>
                 {joining ? 'Joining...' : 'Join as player'}
               </button>
-              <button className="btn" disabled={joining || !name.trim() || !joinCode.trim()} onClick={joinRoomAsSpectator}>
+              <button className="btn" disabled={joining || !effectiveName.trim() || !joinCode.trim()} onClick={joinRoomAsSpectator}>
                 {joining ? 'Joining...' : 'Join as spectator'}
               </button>
             </div>
@@ -268,9 +318,12 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="row" style={{ justifyContent: 'center' }}>
+      <div className="row homeQuickLinks" style={{ justifyContent: 'center' }}>
         <a className="btn" href="/lobbies">
           Browse public lobbies
+        </a>
+        <a className="btn" href="/account">
+          Account
         </a>
       </div>
 

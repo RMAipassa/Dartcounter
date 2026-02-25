@@ -7,6 +7,10 @@ echo Working dir: %CD%
 
 if "%PORT%"=="" set PORT=7777
 
+set AUTODARTS_MODE=REAL
+set AUTODARTS_ALLOW_MOCK_BINDING=false
+set AUTODARTS_ALLOW_MOCK_DARTS=false
+
 REM Ensure devDependencies are installed for build
 set npm_config_production=false
 

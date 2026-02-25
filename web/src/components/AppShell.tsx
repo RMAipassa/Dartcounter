@@ -194,6 +194,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <a className="btn" href="/lobbies" onClick={() => setOpen(false)}>
                 Public lobbies
               </a>
+              <a className="btn" href="/account" onClick={() => setOpen(false)}>
+                Account
+              </a>
               {roomCode ? (
                 <button
                   className="btn"

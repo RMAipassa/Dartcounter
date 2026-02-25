@@ -7,6 +7,7 @@ export type RoomCode = string
 export type ClientInfo = {
   socketId: string
   name: string
+  userId?: string
   isHost: boolean
   role: 'PLAYER' | 'SPECTATOR'
 }
@@ -19,6 +20,9 @@ export type RoomState = {
   clients: Map<string, ClientInfo>
   hostSecret: string
   controllerSocketIdByPlayerId: Record<string, string>
+  playerUserIdByPlayerId: Record<string, string>
+  autodartsBoundUserId: string | null
+  statsRecorded: boolean
   match: X01MatchState
   emptyDeleteTimer: NodeJS.Timeout | null
 }
@@ -75,6 +79,9 @@ export function createRoom(args: { hostName: string; settings: X01Settings }): R
     clients: new Map(),
     hostSecret,
     controllerSocketIdByPlayerId: {},
+    playerUserIdByPlayerId: {},
+    autodartsBoundUserId: null,
+    statsRecorded: false,
     match,
     emptyDeleteTimer: null,
   }

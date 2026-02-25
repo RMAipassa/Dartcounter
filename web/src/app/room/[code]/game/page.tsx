@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
 import type { Dart, MatchSnapshot, Player, PlayerStats, RoomSnapshot } from '@/lib/types'
 import { suggestCheckout, type OutRule } from '@/lib/checkout'
+
+type VoiceLang = 'EN' | 'NL' | 'DE'
 
 export default function GamePage() {
   const params = useParams<{ code: string }>()
@@ -24,6 +26,24 @@ export default function GamePage() {
   ])
 
   const [needDarts, setNeedDarts] = useState<null | 'DOUBLE_IN'>(null)
+  const [autodartsBuffer, setAutodartsBuffer] = useState<Dart[]>([])
+  const [autodartsBufferPlayerId, setAutodartsBufferPlayerId] = useState<string | null>(null)
+  const [autodartsBufferReady, setAutodartsBufferReady] = useState(false)
+  const [autodartsBufferReason, setAutodartsBufferReason] = useState<'THREE_DARTS' | 'BUST' | 'CHECKOUT' | null>(null)
+  const [autodartsLastDart, setAutodartsLastDart] = useState<Dart | null>(null)
+  const [autodartsLoadedForReview, setAutodartsLoadedForReview] = useState<{ playerId: string; darts: Dart[] } | null>(null)
+  const [voiceSupported, setVoiceSupported] = useState(false)
+  const [voiceListening, setVoiceListening] = useState(false)
+  const [voiceLastTranscript, setVoiceLastTranscript] = useState<string>('')
+  const [voiceHelpOpen, setVoiceHelpOpen] = useState(false)
+  const [voiceCalloutsEnabled, setVoiceCalloutsEnabled] = useState(true)
+  const voiceLang: VoiceLang = 'EN'
+  const [hostSecret, setHostSecret] = useState<string | null>(null)
+  const [hydrated, setHydrated] = useState(false)
+  const missingBoardNoticeKeyRef = useRef('')
+  const speechRef = useRef<any>(null)
+  const activeCalloutAudioRef = useRef<HTMLAudioElement | null>(null)
+  const missingCalloutAudioRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const next = String(total)
@@ -31,9 +51,23 @@ export default function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total])
 
-  const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setHydrated(true)
+    setHostSecret(localStorage.getItem('dc_hostSecret'))
+    const savedCallouts = localStorage.getItem('dc_voiceCallouts')
+    if (savedCallouts === 'off') setVoiceCalloutsEnabled(false)
+    const ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    setVoiceSupported(Boolean(ctor))
+  }, [])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem('dc_voiceCallouts', voiceCalloutsEnabled ? 'on' : 'off')
+  }, [voiceCalloutsEnabled])
+
+  useEffect(() => {
+    if (!hydrated) return
     const socket = getSocket(serverUrl)
     let mounted = true
 
@@ -41,15 +75,107 @@ export default function GamePage() {
       if (!mounted) return
       if (s?.code?.toUpperCase?.() !== code) return
       setSnap(s)
+      const debug = s?.room?.autodartsRoutingDebug
+      if (debug?.missingPersonalDevice && debug?.currentPlayerUserId) {
+        const key = `${debug.currentPlayerUserId}:${debug.currentPlayerId ?? 'none'}:${s?.match?.currentLegIndex ?? 'none'}`
+        if (missingBoardNoticeKeyRef.current !== key) {
+          missingBoardNoticeKeyRef.current = key
+          setToast(`No personal autodarts device saved for ${debug.currentPlayerName ?? 'current player'}`)
+          setTimeout(() => setToast(null), 2200)
+        }
+      } else {
+        missingBoardNoticeKeyRef.current = ''
+      }
+
+      const pending = s?.room?.autodartsPending ?? null
+      if (pending) {
+        const pendingDarts = toEditorDarts(Array.isArray(pending.darts) ? pending.darts : [])
+        setAutodartsBufferPlayerId(typeof pending.playerId === 'string' ? pending.playerId : null)
+        setAutodartsBuffer(Array.isArray(pending.darts) ? pending.darts : [])
+        setAutodartsBufferReady(Boolean(pending.ready))
+        setAutodartsBufferReason(
+          pending.reason === 'THREE_DARTS' || pending.reason === 'BUST' || pending.reason === 'CHECKOUT' ? pending.reason : null,
+        )
+        if (pendingDarts.length > 0) {
+          setEntryMode('PER_DART')
+          setDarts(pendingDarts)
+        }
+        if (pending.ready) {
+          setAutodartsLoadedForReview({ playerId: typeof pending.playerId === 'string' ? pending.playerId : '', darts: pendingDarts })
+        }
+      } else {
+        setAutodartsBuffer([])
+        setAutodartsBufferPlayerId(null)
+        setAutodartsBufferReady(false)
+        setAutodartsBufferReason(null)
+        setAutodartsLoadedForReview(null)
+      }
+
+      if (s?.match?.status !== 'LIVE') {
+        setAutodartsBuffer([])
+        setAutodartsBufferPlayerId(null)
+        setAutodartsBufferReady(false)
+        setAutodartsBufferReason(null)
+        setAutodartsLoadedForReview(null)
+      }
     })
 
-    const name = localStorage.getItem('dc_name') ?? 'Guest'
+    socket.on('room:autodartsDart', (evt: any) => {
+      if (!mounted) return
+      if (evt?.roomCode?.toUpperCase?.() !== code) return
+      if (evt?.dart) {
+        setAutodartsLastDart(evt.dart)
+      }
+    })
+
+    socket.on('room:autodartsTurnBuffer', (evt: any) => {
+      if (!mounted) return
+      const playerId = typeof evt?.playerId === 'string' ? evt.playerId : null
+      const dartsIn = Array.isArray(evt?.darts) ? evt.darts : []
+      const editorDarts = toEditorDarts(dartsIn)
+      setAutodartsBufferPlayerId(playerId)
+      setAutodartsBuffer(dartsIn)
+      setAutodartsBufferReady(Boolean(evt?.ready))
+      setAutodartsBufferReason(
+        evt?.reason === 'THREE_DARTS' || evt?.reason === 'BUST' || evt?.reason === 'CHECKOUT' ? evt.reason : null,
+      )
+      if (editorDarts.length > 0) {
+        setEntryMode('PER_DART')
+        setDarts(editorDarts)
+      }
+      if (evt?.ready) {
+        setAutodartsLoadedForReview({ playerId: playerId ?? '', darts: editorDarts })
+        setToast('Autodarts captured turn. Review and submit.')
+        setTimeout(() => setToast(null), 1800)
+      }
+    })
+
+    socket.on('room:autodartsTurnCleared', (evt: any) => {
+      if (!mounted) return
+      setAutodartsBuffer([])
+      setAutodartsBufferPlayerId(null)
+      setAutodartsBufferReady(false)
+      setAutodartsBufferReason(null)
+      setAutodartsLoadedForReview(null)
+      const who = typeof evt?.by === 'string' ? evt.by : 'player'
+      setToast(`Autodarts turn cleared by ${who}`)
+      setTimeout(() => setToast(null), 1600)
+    })
+
+    socket.on('room:turnAccepted', (evt: any) => {
+      if (!mounted || !voiceCalloutsEnabled) return
+      void playTurnCallout(evt, voiceLang, activeCalloutAudioRef, missingCalloutAudioRef)
+    })
+
+    const name = localStorage.getItem('dc_authDisplayName') || localStorage.getItem('dc_name') || 'Guest'
     const role = localStorage.getItem('dc_role')
+    const authToken = localStorage.getItem('dc_authToken')
     socket
       .emitWithAck('room:join', {
         code,
         name,
         hostSecret: hostSecret ?? undefined,
+        authToken: authToken ?? undefined,
         asSpectator: role === 'SPECTATOR',
       })
       .then((res: any) => {
@@ -59,8 +185,12 @@ export default function GamePage() {
     return () => {
       mounted = false
       socket.off('room:snapshot')
+      socket.off('room:autodartsDart')
+      socket.off('room:autodartsTurnBuffer')
+      socket.off('room:autodartsTurnCleared')
+      socket.off('room:turnAccepted')
     }
-  }, [code, hostSecret, serverUrl])
+  }, [code, hostSecret, serverUrl, hydrated, voiceCalloutsEnabled])
 
   const match = snap?.match
   const leg = match?.leg
@@ -70,6 +200,30 @@ export default function GamePage() {
   const currentPlayer = currentIdx >= 0 ? players[currentIdx] : null
   const finished = match?.status === 'FINISHED'
   const statsByPlayerId = match?.statsByPlayerId ?? {}
+  const autodarts = snap?.room?.autodarts
+  const autodartsActiveUserId = snap?.room?.autodartsActiveUserId ?? null
+  const autodartsActivePlayerName = autodartsActiveUserId
+    ? (snap?.clients ?? []).find((c) => c.userId === autodartsActiveUserId)?.name ?? null
+    : null
+  const isHost = Boolean(hostSecret)
+  const autodartsBufferPlayerName = autodartsBufferPlayerId
+    ? players.find((p) => p.id === autodartsBufferPlayerId)?.name ?? null
+    : null
+  const canSubmitByControl = hydrated && currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false
+  const canClearAutodartsPending =
+    autodartsBuffer.length > 0 &&
+    (isHost || (hydrated && autodartsBufferPlayerId ? canSubmitForCurrent(code, autodartsBufferPlayerId) : false))
+  const autodartsControllingTurn =
+    Boolean(currentPlayer?.id) &&
+    autodarts?.status === 'CONNECTED' &&
+    autodartsBuffer.length > 0 &&
+    autodartsBufferPlayerId === currentPlayer?.id
+  const autodartsTurnReady = autodartsControllingTurn && autodartsBufferReady
+  const canSubmitNow = canSubmitByControl && (!autodartsControllingTurn || autodartsTurnReady)
+  const autodartsPerDartOnly = autodarts?.status === 'CONNECTED'
+  const autodartsReviewEdited =
+    Boolean(autodartsLoadedForReview) &&
+    (entryMode !== 'PER_DART' || !sameDarts(darts, autodartsLoadedForReview?.darts ?? []))
 
   const currentLegPlayer = currentPlayer ? leg?.players?.find((p) => p.playerId === currentPlayer.id) : null
   const outRule: OutRule = settings?.doubleOut ? 'DOUBLE' : settings?.masterOut ? 'MASTER' : 'ANY'
@@ -88,9 +242,26 @@ export default function GamePage() {
 
   const [scoresTab, setScoresTab] = useState<'RECENT' | 'ALL'>('RECENT')
 
+  useEffect(() => {
+    if (!autodartsPerDartOnly) return
+    if (entryMode !== 'PER_DART') setEntryMode('PER_DART')
+  }, [autodartsPerDartOnly, entryMode])
+
+  async function clearAutodartsPending() {
+    try {
+      const socket = getSocket(serverUrl)
+      const res = await socket.emitWithAck('game:autodartsClearPending')
+      if (!res?.ok) throw new Error(res?.message ?? 'Failed to clear autodarts turn')
+    } catch (e: any) {
+      setToast(e?.message ?? String(e))
+      setTimeout(() => setToast(null), 2500)
+    }
+  }
+
   async function submitTurn(withDarts?: boolean) {
     try {
       setToast(null)
+      const submittingAutodartsSuggestion = autodartsTurnReady
       const socket = getSocket(serverUrl)
       const payload: any = {}
 
@@ -104,13 +275,82 @@ export default function GamePage() {
       const res = await socket.emitWithAck('game:submitTurn', payload)
       if (!res?.ok) {
         if (res?.code === 'NEED_DARTS_FOR_DOUBLE_IN') setNeedDarts('DOUBLE_IN')
+        if (res?.code === 'AUTODARTS_PER_DART_ONLY') setEntryMode('PER_DART')
         throw new Error(res?.message ?? 'Failed')
       }
       setNeedDarts(null)
+      if (submittingAutodartsSuggestion) {
+        setAutodartsLoadedForReview(null)
+      }
     } catch (e: any) {
       setToast(e?.message ?? String(e))
       setTimeout(() => setToast(null), 2500)
     }
+  }
+
+  function toggleVoiceInput() {
+    if (!voiceSupported || typeof window === 'undefined') {
+      setToast('Voice input not supported in this browser')
+      setTimeout(() => setToast(null), 1800)
+      return
+    }
+
+    if (voiceListening) {
+      speechRef.current?.stop?.()
+      setVoiceListening(false)
+      return
+    }
+
+    const ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    const rec = new ctor()
+    speechRef.current = rec
+    rec.lang = 'en-US'
+    rec.interimResults = false
+    rec.maxAlternatives = 1
+
+    rec.onstart = () => {
+      setVoiceListening(true)
+      setToast('Listening... say e.g. "triple 20" / "trippel 20" / "dreifach 20"')
+      setTimeout(() => setToast(null), 2000)
+    }
+
+    rec.onend = () => {
+      setVoiceListening(false)
+    }
+
+    rec.onerror = () => {
+      setVoiceListening(false)
+      setToast('Voice capture failed')
+      setTimeout(() => setToast(null), 1800)
+    }
+
+    rec.onresult = (evt: any) => {
+      const transcript = String(evt?.results?.[0]?.[0]?.transcript ?? '').trim()
+      setVoiceLastTranscript(transcript)
+      const parsed = parseVoiceTurn(transcript)
+      if (parsed) {
+        setEntryMode('PER_DART')
+        setDarts(toEditorDarts(parsed))
+        setToast(`Voice captured: ${parsed.map((d: Dart) => dartToLabel(d)).join(', ')}`)
+        setTimeout(() => setToast(null), 1800)
+        return
+      }
+
+      const score = parseVoiceScore180(transcript)
+      if (score != null) {
+        setEntryMode('TOTAL')
+        setTotal(score)
+        setTotalText(String(score))
+        setToast(`Voice score: ${score}`)
+        setTimeout(() => setToast(null), 1800)
+        return
+      }
+
+      setToast('Could not parse voice input')
+      setTimeout(() => setToast(null), 1800)
+    }
+
+    rec.start()
   }
 
   return (
@@ -130,6 +370,73 @@ export default function GamePage() {
         </div>
       </div>
 
+      <div className="card" style={{ padding: 14 }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <span className="pill">Autodarts: {autodarts?.status ?? 'DISCONNECTED'}</span>
+            <span className="pill">Device: {autodarts?.deviceId ?? 'none'}</span>
+            <span className="pill">Active player board: {autodartsActivePlayerName ?? 'none'}</span>
+            {autodartsPerDartOnly ? <span className="pill" style={{ color: 'var(--accent)' }}>Per-dart only</span> : null}
+            {autodartsLastDart ? <span className="pill">Last dart: {dartToLabel(autodartsLastDart)}</span> : null}
+            <button className="btn" onClick={toggleVoiceInput} disabled={!voiceSupported || finished}>
+              {voiceListening ? 'Stop voice' : 'Voice input'}
+            </button>
+            <button className="btn" onClick={() => setVoiceHelpOpen((v) => !v)}>
+              {voiceHelpOpen ? 'Hide voice help' : 'Voice help'}
+            </button>
+            <button className="btn" onClick={() => setVoiceCalloutsEnabled((v) => !v)}>
+              Callouts: {voiceCalloutsEnabled ? 'on' : 'off'}
+            </button>
+            {voiceLastTranscript ? <span className="pill">Heard: {voiceLastTranscript}</span> : null}
+          </div>
+
+        </div>
+
+        {autodartsBuffer.length > 0 ? (
+          <div className="row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+            <span className="pill">Buffer {autodartsBufferPlayerName ? `(${autodartsBufferPlayerName})` : ''}</span>
+            {autodartsBuffer.map((d, i) => (
+              <span key={`${d.segment}-${d.multiplier}-${i}`} className="pill" style={{ color: 'var(--text)' }}>
+                {dartToLabel(d)}
+              </span>
+            ))}
+            {autodartsBufferReady ? (
+              <span className="pill" style={{ color: 'var(--good)' }}>
+                Ready to submit{autodartsBufferReason ? ` (${autodartsBufferReason.toLowerCase()})` : ''}
+              </span>
+            ) : (
+              <span className="pill">Capturing...</span>
+            )}
+            {autodartsLoadedForReview ? (
+              <span className="pill" style={{ color: autodartsReviewEdited ? '#ffd88a' : 'var(--good)' }}>
+                {autodartsReviewEdited ? 'Edited before submit' : 'Unchanged'}
+              </span>
+            ) : null}
+            {canClearAutodartsPending ? (
+              <button className="btn" onClick={clearAutodartsPending}>
+                Reject autodarts turn
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {autodarts?.lastError ? <div className="help" style={{ color: 'var(--bad)', marginTop: 8 }}>Error: {autodarts.lastError}</div> : null}
+
+        {voiceHelpOpen ? (
+          <div className="col" style={{ marginTop: 8 }}>
+            <div className="help">Voice cheat sheet</div>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <span className="pill">Darts: "triple 20, double 20, miss"</span>
+              <span className="pill">Short: "t20 d20 sb"</span>
+              <span className="pill">EN: single/double/triple/treble/miss</span>
+              <span className="pill">NL: enkel/dubbel/trippel</span>
+              <span className="pill">DE: einfach/doppel/dreifach/fehlwurf</span>
+              <span className="pill">Totals: say 1..180 ("100", "one hundred eighty")</span>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       <div className="mobileOnly fullBleed">
         <MobileGame
           code={code}
@@ -139,7 +446,11 @@ export default function GamePage() {
           currentPlayer={currentPlayer}
           statsByPlayerId={statsByPlayerId}
           checkoutSuggestion={checkoutSuggestion}
-          canSubmit={currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false}
+          canSubmit={canSubmitNow}
+          autodartsControllingTurn={autodartsControllingTurn}
+          autodartsTurnReady={autodartsTurnReady}
+          autodartsBaselineDarts={autodartsLoadedForReview?.darts ?? null}
+          perDartOnly={autodartsPerDartOnly}
           onSubmit={submitTurn}
           entryMode={entryMode}
           setEntryMode={setEntryMode}
@@ -174,6 +485,7 @@ export default function GamePage() {
                   settings={settings}
                   match={match}
                   stats={statsByPlayerId[p.id]}
+                  autodartsControllingTurn={autodartsControllingTurn && p.id === currentPlayer?.id}
                 />
               ))}
             </div>
@@ -195,7 +507,10 @@ export default function GamePage() {
             submitTurn={submitTurn}
             settings={settings}
             finished={finished}
-            canSubmit={currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false}
+            canSubmit={canSubmitNow}
+            autodartsControllingTurn={autodartsControllingTurn}
+            autodartsTurnReady={autodartsTurnReady}
+            perDartOnly={autodartsPerDartOnly}
           />
         </div>
       </div>
@@ -281,6 +596,10 @@ function MobileGame({
   checkoutSuggestion,
   canSubmit,
   onSubmit,
+  autodartsControllingTurn,
+  autodartsTurnReady,
+  autodartsBaselineDarts,
+  perDartOnly,
   entryMode,
   setEntryMode,
   totalText,
@@ -300,6 +619,10 @@ function MobileGame({
   checkoutSuggestion: { labels: string[] } | null
   canSubmit: boolean
   onSubmit: (withDarts?: boolean) => Promise<void>
+  autodartsControllingTurn: boolean
+  autodartsTurnReady: boolean
+  autodartsBaselineDarts: Dart[] | null
+  perDartOnly: boolean
   entryMode: 'TOTAL' | 'PER_DART'
   setEntryMode: (m: 'TOTAL' | 'PER_DART') => void
   totalText: string
@@ -375,6 +698,7 @@ function MobileGame({
         <div className="row" style={{ flexWrap: 'wrap', marginTop: 10 }}>
           {match?.settings?.setsEnabled ? <span className="pill">Sets won: {stats?.setsWon ?? 0}</span> : null}
           <span className="pill">Legs won: {stats?.legsWon ?? 0}</span>
+          {autodartsControllingTurn ? <span className="pill" style={{ color: 'var(--accent)' }}>Autodarts scoring</span> : null}
         </div>
 
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
@@ -394,11 +718,23 @@ function MobileGame({
         ) : null}
       </div>
 
-      <div className="turnBanner">{canSubmit && !finished ? "IT'S YOUR TURN" : finished ? 'FINISHED' : 'WAITING'}</div>
+      <div className="turnBanner">
+        {finished
+          ? 'FINISHED'
+          : autodartsControllingTurn
+            ? autodartsTurnReady
+              ? 'REVIEW AND SUBMIT'
+              : 'AUTODARTS SCORING'
+            : canSubmit
+              ? "IT'S YOUR TURN"
+              : 'WAITING'}
+      </div>
 
       <MobileTurnEntry
         entryMode={entryMode}
         setEntryMode={setEntryMode}
+        autodartsBaselineDarts={autodartsBaselineDarts}
+        perDartOnly={perDartOnly}
         totalText={totalText}
         setTotalText={setTotalText}
         total={total}
@@ -434,6 +770,8 @@ function dartsThrownForPlayer(turns: MatchSnapshot['leg']['turns'], playerId: st
 function MobileTurnEntry({
   entryMode,
   setEntryMode,
+  autodartsBaselineDarts,
+  perDartOnly,
   totalText,
   setTotalText,
   total,
@@ -445,6 +783,8 @@ function MobileTurnEntry({
 }: {
   entryMode: 'TOTAL' | 'PER_DART'
   setEntryMode: (m: 'TOTAL' | 'PER_DART') => void
+  autodartsBaselineDarts: Dart[] | null
+  perDartOnly: boolean
   totalText: string
   setTotalText: (t: string) => void
   total: number
@@ -459,6 +799,17 @@ function MobileTurnEntry({
 
   const labels = darts.map((d) => dartToLabel(d))
   const totalFromDarts = darts.reduce((acc, d) => acc + dartPoints(d), 0)
+
+  useEffect(() => {
+    if (entryMode !== 'PER_DART') return
+    if (!autodartsBaselineDarts || autodartsBaselineDarts.length < 1) return
+
+    const baseline = toEditorDarts(autodartsBaselineDarts)
+    const idx = firstDifferentDartIndex(darts, baseline)
+    if (idx >= 0 && idx <= 2 && idx !== dartCursor) {
+      setDartCursor(idx)
+    }
+  }, [entryMode, autodartsBaselineDarts, darts, dartCursor])
 
   function resetDarts() {
     setDarts([
@@ -552,14 +903,20 @@ function MobileTurnEntry({
         <button
           className="entryToggle"
           onClick={() => {
+            if (perDartOnly) {
+              setEntryMode('PER_DART')
+              return
+            }
             const next = entryMode === 'TOTAL' ? 'PER_DART' : 'TOTAL'
             setEntryMode(next)
             if (next === 'TOTAL') clear()
             else resetDarts()
           }}
           aria-label="Toggle input"
+          disabled={perDartOnly}
+          title={perDartOnly ? 'Autodarts connected: per-dart only' : undefined}
         >
-          {entryMode === 'TOTAL' ? '123' : 'D'}
+          {perDartOnly ? 'D' : entryMode === 'TOTAL' ? '123' : 'D'}
         </button>
         <div className="entryDisplay">
           <span className="entryHint">{entryMode === 'TOTAL' ? 'Enter a score' : labels.join('  ')}</span>
@@ -570,7 +927,7 @@ function MobileTurnEntry({
         </button>
       </div>
 
-      {entryMode === 'TOTAL' ? (
+      {entryMode === 'TOTAL' && !perDartOnly ? (
         <div className="col" style={{ gap: 10 }}>
           <div className="padGrid">
             {['1','2','3','4','5','6','7','8','9'].map((n) => (
@@ -635,6 +992,452 @@ function dartToLabel(d: Dart): string {
   return `${d.segment}`
 }
 
+function sameDarts(a: Dart[], b: Dart[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (!x || !y) return false
+    if (x.segment !== y.segment || x.multiplier !== y.multiplier) return false
+  }
+  return true
+}
+
+function firstDifferentDartIndex(a: Dart[], b: Dart[]): number {
+  const len = Math.max(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (!x || !y) return i
+    if (x.segment !== y.segment || x.multiplier !== y.multiplier) return i
+  }
+  return -1
+}
+
+function toEditorDarts(input: Dart[]): Dart[] {
+  if (!Array.isArray(input) || input.length < 1) return []
+  const out: Dart[] = [
+    { segment: 0, multiplier: 0 },
+    { segment: 0, multiplier: 0 },
+    { segment: 0, multiplier: 0 },
+  ]
+  for (let i = 0; i < 3; i++) {
+    const d = input[i]
+    if (!d) continue
+    out[i] = { segment: d.segment, multiplier: d.multiplier }
+  }
+  return out
+}
+
+function parseVoiceTurn(input: string): Dart[] | null {
+  const txt = input
+    .toLowerCase()
+    .replaceAll(',', ' ')
+    .replaceAll('-', ' ')
+    .replaceAll('.', ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!txt) return null
+
+  const words = txt.split(' ')
+  const darts: Dart[] = []
+  let i = 0
+
+  while (i < words.length && darts.length < 3) {
+    const w = words[i]
+    const next = words[i + 1]
+
+    if (isMissWord(w)) {
+      darts.push({ segment: 0, multiplier: 0 })
+      i += 1
+      continue
+    }
+
+    if (isSingleWord(w) && isSegmentWord(next)) {
+      darts.push({ segment: Number(next), multiplier: 1 })
+      i += 2
+      continue
+    }
+    if (isDoubleWord(w) && isSegmentWord(next)) {
+      darts.push({ segment: Number(next), multiplier: 2 })
+      i += 2
+      continue
+    }
+    if (isTripleWord(w) && isSegmentWord(next)) {
+      darts.push({ segment: Number(next), multiplier: 3 })
+      i += 2
+      continue
+    }
+
+    if (isDoubleWord(w) && isBullWord(next, false)) {
+      darts.push({ segment: 25, multiplier: 2 })
+      i += 2
+      continue
+    }
+    if (isSingleWord(w) && isBullWord(next, false)) {
+      darts.push({ segment: 25, multiplier: 1 })
+      i += 2
+      continue
+    }
+    if (isBullWord(w, false)) {
+      darts.push({ segment: 25, multiplier: 1 })
+      i += 1
+      continue
+    }
+    if (isBullWord(w, true)) {
+      darts.push({ segment: 25, multiplier: 2 })
+      i += 1
+      continue
+    }
+
+    if (/^[sdt]\d{1,2}$/.test(w)) {
+      const mult = w[0] === 's' ? 1 : w[0] === 'd' ? 2 : 3
+      const seg = Number(w.slice(1))
+      if (seg >= 1 && seg <= 20) {
+        darts.push({ segment: seg, multiplier: mult as 1 | 2 | 3 })
+        i += 1
+        continue
+      }
+    }
+
+    i += 1
+  }
+
+  return darts.length > 0 ? darts : null
+}
+
+function parseVoiceScore180(input: string): number | null {
+  const txt = input
+    .toLowerCase()
+    .replaceAll(',', ' ')
+    .replaceAll('-', ' ')
+    .replaceAll('.', ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!txt) return null
+
+  const direct = Number(txt)
+  if (Number.isInteger(direct) && direct >= 1 && direct <= 180) return direct
+
+  const numberInText = txt.match(/\b(\d{1,3})\b/)
+  if (numberInText) {
+    const n = Number(numberInText[1])
+    if (Number.isInteger(n) && n >= 1 && n <= 180) return n
+  }
+
+  const english = parseEnglishNumber(txt)
+  if (english != null && english >= 1 && english <= 180) return english
+
+  return null
+}
+
+function parseEnglishNumber(input: string): number | null {
+  const units: Record<string, number> = {
+    zero: 0,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+    thirteen: 13,
+    fourteen: 14,
+    fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+  }
+  const tens: Record<string, number> = {
+    twenty: 20,
+    thirty: 30,
+    forty: 40,
+    fifty: 50,
+    sixty: 60,
+    seventy: 70,
+    eighty: 80,
+    ninety: 90,
+  }
+
+  const words = input
+    .split(' ')
+    .map((w) => w.trim())
+    .filter(Boolean)
+    .filter((w) => w !== 'and')
+
+  if (words.length === 0) return null
+
+  let total = 0
+  let current = 0
+  for (const w of words) {
+    if (w in units) {
+      current += units[w]
+      continue
+    }
+    if (w in tens) {
+      current += tens[w]
+      continue
+    }
+    if (w === 'hundred') {
+      if (current === 0) current = 1
+      current *= 100
+      continue
+    }
+    return null
+  }
+
+  total += current
+  return Number.isInteger(total) ? total : null
+}
+
+async function playTurnCallout(
+  evt: any,
+  lang: VoiceLang,
+  activeAudioRef: { current: HTMLAudioElement | null },
+  missingAudioRef: { current: Set<string> },
+): Promise<void> {
+  const text = buildTurnCallout(evt, lang)
+  if (!text) return
+
+  const key = buildTurnCalloutAudioKey(evt)
+  if (key) {
+    const played = await tryPlayCalloutAudio(key, lang, activeAudioRef, missingAudioRef)
+    if (played) return
+  }
+
+  speakCallout(text, lang)
+}
+
+function buildTurnCalloutAudioKey(evt: any): string | null {
+  if (!evt || typeof evt !== 'object') return null
+  const score = Number(evt.score)
+  const isBust = Boolean(evt.isBust)
+  const didCheckout = Boolean(evt.didCheckout)
+  const matchFinished = Boolean(evt.matchFinished)
+  const finishedLegNumber = Number(evt.finishedLegNumber)
+
+  if (didCheckout && matchFinished) return 'game-shot-match'
+  if (didCheckout && Number.isInteger(finishedLegNumber) && finishedLegNumber > 0 && finishedLegNumber <= 20) {
+    return `game-shot-leg-${finishedLegNumber}`
+  }
+  if (didCheckout) return 'game-shot'
+  if (isBust) return 'bust'
+  if (Number.isInteger(score) && score >= 0 && score <= 180) return `score-${score}`
+  return null
+}
+
+async function tryPlayCalloutAudio(
+  key: string,
+  lang: VoiceLang,
+  activeAudioRef: { current: HTMLAudioElement | null },
+  missingAudioRef: { current: Set<string> },
+): Promise<boolean> {
+  if (typeof window === 'undefined') return false
+  const langFolder = lang.toLowerCase()
+  const keys = expandAudioKeyCandidates(key)
+
+  for (const candidate of keys) {
+    const src = `/audio/callouts/${langFolder}/${candidate}.mp3`
+    if (missingAudioRef.current.has(src)) continue
+
+    const audio = new Audio(src)
+    audio.preload = 'metadata'
+    audio.crossOrigin = 'anonymous'
+
+    const exists = await waitForAudioLoad(audio)
+    if (!exists) {
+      missingAudioRef.current.add(src)
+      continue
+    }
+
+    try {
+      if (activeAudioRef.current) {
+        activeAudioRef.current.pause()
+        activeAudioRef.current.currentTime = 0
+      }
+      activeAudioRef.current = audio
+      await audio.play()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  return false
+}
+
+function expandAudioKeyCandidates(key: string): string[] {
+  const keys = new Set<string>([key])
+  if (key.startsWith('score-')) {
+    const score = key.slice('score-'.length)
+    if (/^\d+$/.test(score)) keys.add(score)
+  }
+  return Array.from(keys)
+}
+
+function waitForAudioLoad(audio: HTMLAudioElement): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      cleanup()
+      resolve(ok)
+    }
+    const cleanup = () => {
+      audio.onloadedmetadata = null
+      audio.oncanplay = null
+      audio.onerror = null
+      clearTimeout(timeout)
+    }
+    const timeout = setTimeout(() => finish(false), 1200)
+    audio.onloadedmetadata = () => finish(true)
+    audio.oncanplay = () => finish(true)
+    audio.onerror = () => finish(false)
+    audio.load()
+  })
+}
+
+function buildTurnCallout(evt: any, lang: VoiceLang): string | null {
+  if (!evt || typeof evt !== 'object') return null
+  const score = Number(evt.score)
+  const isBust = Boolean(evt.isBust)
+  const didCheckout = Boolean(evt.didCheckout)
+  const matchFinished = Boolean(evt.matchFinished)
+  const finishedLegNumber = Number(evt.finishedLegNumber)
+
+  if (didCheckout) {
+    if (matchFinished) {
+      if (lang === 'NL') return 'Game shot en de wedstrijd.'
+      if (lang === 'DE') return 'Game shot und das Match.'
+      return 'Game shot and the match.'
+    }
+    if (Number.isInteger(finishedLegNumber) && finishedLegNumber > 0) {
+      if (lang === 'NL') return `Game shot en de ${ordinalWord(finishedLegNumber, lang)} leg.`
+      if (lang === 'DE') return `Game shot und das ${ordinalWord(finishedLegNumber, lang)} Leg.`
+      return `Game shot and the ${ordinalWord(finishedLegNumber, lang)} leg.`
+    }
+    if (lang === 'NL') return 'Game shot.'
+    if (lang === 'DE') return 'Game shot.'
+    return 'Game shot.'
+  }
+
+  if (isBust) {
+    if (lang === 'NL') return 'Busted.'
+    if (lang === 'DE') return 'Bust.'
+    return 'Bust.'
+  }
+  if (Number.isInteger(score) && score >= 0 && score <= 180) return `${score}.`
+  return null
+}
+
+function speakCallout(text: string, lang: VoiceLang): void {
+  if (typeof window === 'undefined') return
+  const synth = (window as any).speechSynthesis
+  const Ctor = (window as any).SpeechSynthesisUtterance
+  if (!synth || !Ctor) return
+  const utter = new Ctor(text)
+  utter.lang = lang === 'NL' ? 'nl-NL' : lang === 'DE' ? 'de-DE' : 'en-US'
+  utter.rate = 1
+  utter.pitch = 1
+  utter.volume = 1
+  synth.speak(utter)
+}
+
+function ordinalWord(n: number, lang: VoiceLang): string {
+  if (lang === 'NL') {
+    const words: Record<number, string> = {
+      1: 'eerste',
+      2: 'tweede',
+      3: 'derde',
+      4: 'vierde',
+      5: 'vijfde',
+      6: 'zesde',
+      7: 'zevende',
+      8: 'achtste',
+      9: 'negende',
+      10: 'tiende',
+    }
+    return words[n] ?? `${n}e`
+  }
+  if (lang === 'DE') {
+    const words: Record<number, string> = {
+      1: 'erste',
+      2: 'zweite',
+      3: 'dritte',
+      4: 'vierte',
+      5: 'fuenfte',
+      6: 'sechste',
+      7: 'siebte',
+      8: 'achte',
+      9: 'neunte',
+      10: 'zehnte',
+    }
+    return words[n] ?? `${n}.`
+  }
+
+  const words: Record<number, string> = {
+    1: 'first',
+    2: 'second',
+    3: 'third',
+    4: 'fourth',
+    5: 'fifth',
+    6: 'sixth',
+    7: 'seventh',
+    8: 'eighth',
+    9: 'ninth',
+    10: 'tenth',
+    11: 'eleventh',
+    12: 'twelfth',
+    13: 'thirteenth',
+    14: 'fourteenth',
+    15: 'fifteenth',
+  }
+  if (words[n]) return words[n]
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return `${n}st`
+  if (mod10 === 2 && mod100 !== 12) return `${n}nd`
+  if (mod10 === 3 && mod100 !== 13) return `${n}rd`
+  return `${n}th`
+}
+
+function isMissWord(word: string): boolean {
+  return ['miss', 'm', 'fehlwurf', 'daneben', 'mis', 'gemist'].includes(word)
+}
+
+function isSingleWord(word: string): boolean {
+  return ['single', 's', 'einfach', 'enkel', 'los'].includes(word)
+}
+
+function isDoubleWord(word: string): boolean {
+  return ['double', 'd', 'dubbel', 'doppel'].includes(word)
+}
+
+function isTripleWord(word: string): boolean {
+  return ['triple', 'treble', 't', 'trippel', 'dreifach'].includes(word)
+}
+
+function isBullWord(word: string | undefined, double: boolean): boolean {
+  if (!word) return false
+  if (double) {
+    return ['bullseye', 'db', 'doppelbull', 'rood', 'redbull'].includes(word)
+  }
+  return ['bull', 'sb', 'bulls', 'groen', 'greenbull'].includes(word)
+}
+
+function isSegmentWord(word?: string): boolean {
+  if (!word) return false
+  const n = Number(word)
+  return Number.isInteger(n) && n >= 1 && n <= 20
+}
+
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(false)
 
@@ -682,6 +1485,9 @@ function EnterTurnCard({
   settings,
   finished,
   canSubmit,
+  autodartsControllingTurn,
+  autodartsTurnReady,
+  perDartOnly,
 }: {
   currentPlayer: Player | null
   checkoutSuggestion: { labels: string[] } | null
@@ -699,7 +1505,12 @@ function EnterTurnCard({
   settings: MatchSnapshot['settings'] | undefined
   finished: boolean
   canSubmit: boolean
+  autodartsControllingTurn: boolean
+  autodartsTurnReady: boolean
+  perDartOnly: boolean
 }) {
+  const effectiveEntryMode: 'TOTAL' | 'PER_DART' = perDartOnly ? 'PER_DART' : entryMode
+
   return (
     <div className="card" style={{ padding: 16 }}>
       <div style={{ fontSize: 16, marginBottom: 6 }}>Enter turn</div>
@@ -720,15 +1531,16 @@ function EnterTurnCard({
 
       <div className="col" style={{ marginTop: 10 }}>
         <div className="row">
-          <button className="btn" onClick={() => setEntryMode('TOTAL')} disabled={entryMode === 'TOTAL'}>
+          <button className="btn" onClick={() => setEntryMode('TOTAL')} disabled={perDartOnly || effectiveEntryMode === 'TOTAL'}>
             Total
           </button>
-          <button className="btn" onClick={() => setEntryMode('PER_DART')} disabled={entryMode === 'PER_DART'}>
+          <button className="btn" onClick={() => setEntryMode('PER_DART')} disabled={effectiveEntryMode === 'PER_DART'}>
             3 darts
           </button>
+          {perDartOnly ? <span className="pill">Autodarts connected: per-dart only</span> : null}
         </div>
 
-        {entryMode === 'PER_DART' ? (
+        {effectiveEntryMode === 'PER_DART' ? (
           <PerDartEditor darts={darts} onChange={setDarts} />
         ) : (
           <div className="col">
@@ -780,7 +1592,11 @@ function EnterTurnCard({
         <button className="btn btnPrimary" onClick={() => submitTurn(false)} disabled={!settings || !currentPlayer || finished || !canSubmit}>
           Submit turn
         </button>
-        {!finished && currentPlayer && !canSubmit ? <div className="help">Waiting for {currentPlayer.name} to submit.</div> : null}
+        {!finished && autodartsControllingTurn && !autodartsTurnReady ? <div className="help">Autodarts is entering this turn.</div> : null}
+        {!finished && autodartsTurnReady ? <div className="help">Review the autodarts darts and submit when ready.</div> : null}
+        {!finished && currentPlayer && !canSubmit && !autodartsControllingTurn ? (
+          <div className="help">Waiting for {currentPlayer.name} to submit.</div>
+        ) : null}
       </div>
     </div>
   )
@@ -793,6 +1609,7 @@ function PlayerPanel({
   settings,
   match,
   stats,
+  autodartsControllingTurn,
 }: {
   player: Player
   isCurrent: boolean
@@ -800,6 +1617,7 @@ function PlayerPanel({
   settings: MatchSnapshot['settings'] | undefined
   match: MatchSnapshot | undefined
   stats: PlayerStats | undefined
+  autodartsControllingTurn: boolean
 }) {
   const ps = leg?.players?.find((x) => x.playerId === player.id)
   const last = lastScoreForPlayer(leg?.turns ?? [], player.id)
@@ -816,6 +1634,7 @@ function PlayerPanel({
               {ps?.isIn ? 'IN' : 'NOT IN'}
             </span>
           ) : null}
+          {autodartsControllingTurn ? <span className="pill" style={{ color: 'var(--accent)' }}>Autodarts scoring</span> : null}
         </div>
         {match?.settings?.setsEnabled ? <span className="pill">Sets: {stats?.setsWon ?? 0}</span> : null}
       </div>

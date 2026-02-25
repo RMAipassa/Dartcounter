@@ -5,12 +5,16 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:bridge": "tsx watch src/bridge/autodarts-bridge.ts",
     "dev:web": "npm --prefix web run dev",
     "dev:all": "concurrently -n server,web -c cyan,green \"npm run dev\" \"npm --prefix web run dev\"",
+    "dev:all:bridge": "concurrently -n server,web,bridge -c cyan,green,yellow \"npm run dev\" \"npm --prefix web run dev\" \"npm run dev:bridge\"",
     "build": "tsc -p tsconfig.json",
     "build:web": "npm --prefix web install && npm --prefix web run build",
     "build:all": "npm run build && npm run build:web",
-    "start": "node dist/server.js"
+    "generate:callouts:elevenlabs": "node scripts/generate-callouts-elevenlabs.mjs",
+    "start": "node dist/server.js",
+    "start:bridge": "node dist/bridge/autodarts-bridge.js"
   },
   "keywords": [],
   "author": "",

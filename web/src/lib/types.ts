@@ -22,6 +22,24 @@ export type Dart = {
   multiplier: 0 | 1 | 2 | 3
 }
 
+export type AutodartsRoomState = {
+  roomCode: string
+  deviceId: string | null
+  runtimeMode: 'MOCK' | 'REAL'
+  status: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR'
+  mockMode: 'MANUAL' | 'AUTO' | null
+  lastConnectedAt: number | null
+  lastEventAt: number | null
+  lastError: string | null
+}
+
+export type AutodartsPendingTurn = {
+  playerId: string
+  darts: Dart[]
+  ready: boolean
+  reason: 'THREE_DARTS' | 'BUST' | 'CHECKOUT' | null
+}
+
 export type LegPlayerSnapshot = {
   playerId: string
   remaining: number
@@ -96,8 +114,24 @@ export type RoomSnapshot = {
     title: string
     isPublic: boolean
     createdAt: number
+    autodartsActiveUserId?: string | null
+    autodartsRoutingDebug?: {
+      enabled: boolean
+      allowMockBinding: boolean
+      allowMockDartInput: boolean
+      currentPlayerId: string | null
+      currentPlayerName: string | null
+      currentPlayerUserId: string | null
+      missingPersonalDevice: boolean
+      boundUserId: string | null
+      boundDeviceId: string | null
+      runtimeMode: 'MOCK' | 'REAL'
+      connectionStatus: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR'
+    }
+    autodarts?: AutodartsRoomState
+    autodartsPending?: AutodartsPendingTurn | null
   }
-  clients: Array<{ socketId: string; name: string; isHost: boolean; role: 'PLAYER' | 'SPECTATOR' }>
+  clients: Array<{ socketId: string; name: string; userId?: string; isHost: boolean; role: 'PLAYER' | 'SPECTATOR' }>
   match: MatchSnapshot
 }
 

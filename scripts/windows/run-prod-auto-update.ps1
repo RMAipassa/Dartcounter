@@ -19,6 +19,9 @@ Set-Location (Resolve-Path (Join-Path $PSScriptRoot '..\..'))
 
 $env:PORT = "$Port"
 $env:NODE_ENV = 'production'
+$env:AUTODARTS_MODE = 'REAL'
+$env:AUTODARTS_ALLOW_MOCK_BINDING = 'false'
+$env:AUTODARTS_ALLOW_MOCK_DARTS = 'false'
 
 function Write-Info($msg) {
   Write-Host "[$(Get-Date -Format HH:mm:ss)] $msg"
@@ -46,7 +49,11 @@ function Start-Server {
   }
 
   Write-Info "Starting server on http://localhost:$Port ..."
-  Start-Process "http://localhost:$Port/" | Out-Null
+  try {
+    Start-Process "http://localhost:$Port/" | Out-Null
+  } catch {
+    Write-Info 'Could not open browser automatically; continuing.'
+  }
   $p = Start-Process -FilePath node -ArgumentList @('dist\server.js') -PassThru
   return $p
 }
@@ -64,12 +71,8 @@ function Stop-Server($proc) {
 }
 
 function Git-HasUpstream {
-  try {
-    git rev-parse --abbrev-ref '@{u}' 2>$null | Out-Null
-    return $true
-  } catch {
-    return $false
-  }
+  git rev-parse --abbrev-ref '@{u}' 1>$null 2>$null
+  return ($LASTEXITCODE -eq 0)
 }
 
 function Git-IsClean {
@@ -78,9 +81,18 @@ function Git-IsClean {
 }
 
 function Git-NeedsUpdate {
-  git fetch | Out-Null
+  git fetch --prune 1>$null 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    throw 'git fetch failed'
+  }
   $local = (git rev-parse HEAD).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    throw 'git rev-parse HEAD failed'
+  }
   $remote = (git rev-parse '@{u}').Trim()
+  if ($LASTEXITCODE -ne 0) {
+    throw 'git rev-parse @{u} failed'
+  }
   return $local -ne $remote
 }
 

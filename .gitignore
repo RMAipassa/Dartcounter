@@ -39,3 +39,5 @@ web/out/
 # Local artifacts
 Dartcounter.zip
 DarttCounter/
+data/
+tools/

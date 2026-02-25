@@ -22,11 +22,20 @@ export default function PublicLobbiesPage() {
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [name, setName] = useState('')
+  const [authDisplayName, setAuthDisplayName] = useState<string | null>(null)
 
   useEffect(() => {
     setServerUrl(getServerUrl())
-    setName(localStorage.getItem('dc_name') ?? '')
+    const signedName = localStorage.getItem('dc_authDisplayName')
+    if (signedName) {
+      setAuthDisplayName(signedName)
+      setName(signedName)
+    } else {
+      setName(localStorage.getItem('dc_name') ?? '')
+    }
   }, [])
+
+  const effectiveName = authDisplayName?.trim() ? authDisplayName : name
 
   async function refresh() {
     setLoading(true)
@@ -53,11 +62,12 @@ export default function PublicLobbiesPage() {
 
   async function join(code: string, asSpectator: boolean) {
     try {
-      if (!name.trim()) throw new Error('Enter your name first')
+      if (!effectiveName.trim()) throw new Error('Enter your name first')
       const socket = getSocket(serverUrl)
-      const res = await socket.emitWithAck('room:join', { code, name, asSpectator })
+      const authToken = localStorage.getItem('dc_authToken') ?? undefined
+      const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed')
-      localStorage.setItem('dc_name', name)
+      localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_role', res.role ?? (asSpectator ? 'SPECTATOR' : 'PLAYER'))
       router.push(`/room/${code}/lobby`)
     } catch (e: any) {
@@ -85,10 +95,17 @@ export default function PublicLobbiesPage() {
 
       <div className="card" style={{ padding: 16 }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <div className="help">Your name (used for player list)</div>
+          <div className="help">Player name</div>
           <span className="pill">Server: {serverUrl}</span>
         </div>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ruben" />
+        {authDisplayName ? (
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="pill" style={{ color: 'var(--text)' }}>{authDisplayName}</span>
+            <span className="help">From your account</span>
+          </div>
+        ) : (
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ruben" />
+        )}
       </div>
 
       <div className="col" style={{ gap: 12 }}>
