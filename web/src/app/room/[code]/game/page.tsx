@@ -16,8 +16,8 @@ export default function GamePage() {
   const [snap, setSnap] = useState<RoomSnapshot | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
-  const [total, setTotal] = useState<number>(60)
-  const [totalText, setTotalText] = useState<string>('60')
+  const [total, setTotal] = useState<number>(0)
+  const [totalText, setTotalText] = useState<string>('0')
   const [entryMode, setEntryMode] = useState<'TOTAL' | 'PER_DART'>('TOTAL')
   const [darts, setDarts] = useState<Dart[]>([
     { segment: 20, multiplier: 1 },
@@ -509,6 +509,8 @@ export default function GamePage() {
       const transcript = String(evt?.results?.[0]?.[0]?.transcript ?? '').trim()
       setVoiceLastTranscript(transcript)
       const shouldSubmit = parseVoiceSubmitIntent(transcript)
+      const missIntent = parseVoiceMissIntent(transcript)
+      const checkIntent = parseVoiceCheckIntent(transcript)
       const parsed = parseVoiceTurn(transcript)
       if (parsed) {
         setEntryMode('PER_DART')
@@ -534,9 +536,31 @@ export default function GamePage() {
         return
       }
 
+      if (shouldSubmit && missIntent) {
+        setEntryMode('TOTAL')
+        setTotal(0)
+        setTotalText('0')
+        void submitTurn(false, { mode: 'TOTAL', total: 0 })
+        setToast('Voice score: MISS (0)')
+        setTimeout(() => setToast(null), 1800)
+        return
+      }
+
+      if (shouldSubmit && checkIntent) {
+        const remaining = Number(currentLegPlayer?.remaining)
+        if (Number.isInteger(remaining) && remaining >= 0 && remaining <= 180) {
+          setEntryMode('TOTAL')
+          setTotal(remaining)
+          setTotalText(String(remaining))
+          void submitTurn(false, { mode: 'TOTAL', total: remaining })
+          setToast(`Voice score: CHECK (${remaining})`)
+          setTimeout(() => setToast(null), 1800)
+          return
+        }
+      }
+
       if (shouldSubmit) {
-        void submitTurn(false)
-        setToast('Submitted current turn')
+        setToast('Say submit with a score: e.g. "submit 40", "submit miss", or "submit check"')
         setTimeout(() => setToast(null), 1800)
         return
       }
@@ -1379,18 +1403,20 @@ function parseVoiceScore180(input: string): number | null {
   if (!txt) return null
 
   const normalized = normalizeSpokenNumberText(txt)
+  const content = stripVoiceCommandWords(normalized)
+  if (!content) return null
 
-  const direct = Number(normalized)
-  if (Number.isInteger(direct) && direct >= 1 && direct <= 180) return direct
+  const direct = Number(content)
+  if (Number.isInteger(direct) && direct >= 0 && direct <= 180) return direct
 
-  const numberInText = normalized.match(/\b(\d{1,3})\b/)
+  const numberInText = content.match(/\b(\d{1,3})\b/)
   if (numberInText) {
     const n = Number(numberInText[1])
-    if (Number.isInteger(n) && n >= 1 && n <= 180) return n
+    if (Number.isInteger(n) && n >= 0 && n <= 180) return n
   }
 
-  const english = parseEnglishNumber(normalized)
-  if (english != null && english >= 1 && english <= 180) return english
+  const english = parseEnglishNumber(content)
+  if (english != null && english >= 0 && english <= 180) return english
 
   return null
 }
@@ -1415,6 +1441,37 @@ function parseVoiceSubmitIntent(input: string): boolean {
     .trim()
   if (!txt) return false
   return /\b(submit|send|enter|confirm|done|next|ok|okay|go)\b/.test(txt)
+}
+
+function parseVoiceMissIntent(input: string): boolean {
+  const txt = input
+    .toLowerCase()
+    .replaceAll(',', ' ')
+    .replaceAll('-', ' ')
+    .replaceAll('.', ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!txt) return false
+  return /\b(miss|missed)\b/.test(txt)
+}
+
+function parseVoiceCheckIntent(input: string): boolean {
+  const txt = input
+    .toLowerCase()
+    .replaceAll(',', ' ')
+    .replaceAll('-', ' ')
+    .replaceAll('.', ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!txt) return false
+  return /\b(check|checkout|check out)\b/.test(txt)
+}
+
+function stripVoiceCommandWords(input: string): string {
+  return input
+    .replace(/\b(submit|send|enter|confirm|done|next|ok|okay|go|score|points|point)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function parseEnglishNumber(input: string): number | null {
