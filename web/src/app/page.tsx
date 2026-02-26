@@ -62,7 +62,8 @@ export default function HomePage() {
     setCreating(true)
     try {
       const socket = getSocket(serverUrl)
-      const authToken = localStorage.getItem('dc_authToken') ?? undefined
+      const rawToken = localStorage.getItem('dc_authToken')
+      const authToken = rawToken && rawToken.trim() ? rawToken.trim() : undefined
       const res = await socket.emitWithAck('room:create', { name: effectiveName, authToken, settings, title, isPublic })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to create room')
       localStorage.setItem('dc_name', effectiveName)
@@ -83,7 +84,8 @@ export default function HomePage() {
     try {
       const socket = getSocket(serverUrl)
       const code = joinCode.trim().toUpperCase()
-      const authToken = localStorage.getItem('dc_authToken') ?? undefined
+      const rawToken = localStorage.getItem('dc_authToken')
+      const authToken = rawToken && rawToken.trim() ? rawToken.trim() : undefined
       const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator: false })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
       localStorage.setItem('dc_name', effectiveName)
@@ -102,7 +104,8 @@ export default function HomePage() {
     try {
       const socket = getSocket(serverUrl)
       const code = joinCode.trim().toUpperCase()
-      const authToken = localStorage.getItem('dc_authToken') ?? undefined
+      const rawToken = localStorage.getItem('dc_authToken')
+      const authToken = rawToken && rawToken.trim() ? rawToken.trim() : undefined
       const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator: true })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
       localStorage.setItem('dc_name', effectiveName)
