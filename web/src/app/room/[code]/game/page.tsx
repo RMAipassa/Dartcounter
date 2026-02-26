@@ -47,6 +47,7 @@ export default function GamePage() {
   const voiceAlwaysOnRef = useRef(false)
   const voiceManualStopRef = useRef(false)
   const suppressVoiceRestartRef = useRef(false)
+  const calloutQueueDepthRef = useRef(0)
   const finishedRef = useRef(false)
   const lastCheckoutReminderKeyRef = useRef('')
   const playbackQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -54,6 +55,7 @@ export default function GamePage() {
   const missingCalloutAudioRef = useRef<Set<string>>(new Set())
 
   const enqueueCalloutPlayback = useCallback((job: () => Promise<void> | void) => {
+    calloutQueueDepthRef.current += 1
     playbackQueueRef.current = playbackQueueRef.current
       .then(async () => {
         const wasListening = Boolean(speechRef.current)
@@ -71,10 +73,13 @@ export default function GamePage() {
         try {
           await Promise.resolve(job())
         } finally {
-          if (wasListening) {
+          calloutQueueDepthRef.current = Math.max(0, calloutQueueDepthRef.current - 1)
+          if (calloutQueueDepthRef.current === 0) {
             suppressVoiceRestartRef.current = false
             setVoicePausedForCallout(false)
-            if (!finishedRef.current && !speechRef.current) {
+          }
+          if (wasListening && calloutQueueDepthRef.current === 0) {
+            if (voiceAlwaysOnRef.current && !voiceManualStopRef.current && !finishedRef.current && !speechRef.current) {
               window.setTimeout(() => startVoiceInput(), 180)
             }
           }
@@ -378,6 +383,7 @@ export default function GamePage() {
       return
     }
     if (voiceAlwaysOn && !voiceListening) {
+      if (calloutQueueDepthRef.current > 0) return
       voiceManualStopRef.current = false
       startVoiceInput()
     }
@@ -407,7 +413,7 @@ export default function GamePage() {
   }
 
   function startVoiceInput() {
-    if (!voiceSupported || typeof window === 'undefined' || finishedRef.current) return
+    if (!voiceSupported || typeof window === 'undefined' || finishedRef.current || calloutQueueDepthRef.current > 0) return
 
     const ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     const rec = new ctor()
@@ -418,8 +424,6 @@ export default function GamePage() {
 
     rec.onstart = () => {
       setVoiceListening(true)
-      setToast('Listening... say e.g. "triple 20" / "trippel 20" / "dreifach 20"')
-      setTimeout(() => setToast(null), 2000)
     }
 
     rec.onend = () => {
@@ -428,7 +432,7 @@ export default function GamePage() {
       if (suppressVoiceRestartRef.current) {
         return
       }
-      if (voiceAlwaysOnRef.current && !voiceManualStopRef.current && !finishedRef.current) {
+      if (voiceAlwaysOnRef.current && !voiceManualStopRef.current && !finishedRef.current && calloutQueueDepthRef.current === 0) {
         window.setTimeout(() => startVoiceInput(), 220)
       }
     }
