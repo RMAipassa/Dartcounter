@@ -64,14 +64,17 @@ export default function GamePage() {
         if (wasListening) {
           suppressVoiceRestartRef.current = true
           setVoicePausedForCallout(true)
-          try {
-            speechRef.current?.stop?.()
-          } catch {
-            // ignore
+          await waitForVoiceIdle(900)
+          if (speechRef.current) {
+            try {
+              speechRef.current?.stop?.()
+            } catch {
+              // ignore
+            }
+            await sleep(140)
           }
           setVoiceListening(false)
           speechRef.current = null
-          await sleep(160)
         }
 
         try {
@@ -422,6 +425,13 @@ export default function GamePage() {
       const started = startVoiceInput()
       if (!started) scheduleVoiceRestart(450)
     }, Math.max(0, delayMs))
+  }
+
+  async function waitForVoiceIdle(timeoutMs: number) {
+    const end = Date.now() + Math.max(0, timeoutMs)
+    while (speechRef.current && Date.now() < end) {
+      await sleep(40)
+    }
   }
 
   function toggleVoiceInput() {
