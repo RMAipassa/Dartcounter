@@ -78,7 +78,7 @@ export default function GamePage() {
             suppressVoiceRestartRef.current = false
             setVoicePausedForCallout(false)
           }
-          if (wasListening && calloutQueueDepthRef.current === 0) {
+          if (calloutQueueDepthRef.current === 0) {
             if (voiceAlwaysOnRef.current && !voiceManualStopRef.current && !finishedRef.current && !speechRef.current) {
               window.setTimeout(() => startVoiceInput(), 180)
             }
