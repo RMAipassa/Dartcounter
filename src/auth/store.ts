@@ -24,9 +24,21 @@ type SessionRecord = {
   expiresAt: number
 }
 
+type FriendStatus = 'PENDING' | 'ACCEPTED' | 'BLOCKED'
+
+type FriendshipRecord = {
+  userAId: string
+  userBId: string
+  status: FriendStatus
+  requestedByUserId: string
+  createdAt: number
+  updatedAt: number
+}
+
 type AuthStoreData = {
   users: UserRecord[]
   sessions: SessionRecord[]
+  friendships: FriendshipRecord[]
 }
 
 const dataFile = path.join(process.cwd(), 'data', 'auth-store.json')
@@ -43,6 +55,19 @@ export type PublicUser = {
   autodartsApiBase: string | null
   autodartsWsBase: string | null
   createdAt: number
+}
+
+export type FriendSummary = {
+  userId: string
+  email: string
+  displayName: string
+}
+
+export type FriendState = {
+  friends: Array<{ user: FriendSummary; since: number }>
+  incoming: Array<{ user: FriendSummary; requestedAt: number }>
+  outgoing: Array<{ user: FriendSummary; requestedAt: number }>
+  blocked: Array<{ user: FriendSummary; blockedAt: number }>
 }
 
 export function registerUser(args: { email: string; password: string; displayName?: string }): PublicUser {
@@ -105,6 +130,142 @@ export function getUserBySessionToken(token?: string | null): PublicUser | null 
 export function getUserById(userId: string): PublicUser | null {
   const user = db.users.find((u) => u.id === userId)
   return user ? toPublicUser(user) : null
+}
+
+export function getUserByEmail(email: string): PublicUser | null {
+  const normalized = email.trim().toLowerCase()
+  const user = db.users.find((u) => u.email === normalized)
+  return user ? toPublicUser(user) : null
+}
+
+export function listFriendState(userId: string): FriendState {
+  const friends: FriendState['friends'] = []
+  const incoming: FriendState['incoming'] = []
+  const outgoing: FriendState['outgoing'] = []
+  const blocked: FriendState['blocked'] = []
+
+  for (const rel of db.friendships) {
+    const otherUserId = otherSide(rel, userId)
+    if (!otherUserId) continue
+    const other = db.users.find((u) => u.id === otherUserId)
+    if (!other) continue
+    const item = { user: toFriendSummary(other) }
+
+    if (rel.status === 'ACCEPTED') {
+      friends.push({ ...item, since: rel.updatedAt })
+      continue
+    }
+
+    if (rel.status === 'BLOCKED') {
+      if (rel.requestedByUserId === userId) blocked.push({ ...item, blockedAt: rel.updatedAt })
+      continue
+    }
+
+    if (rel.status === 'PENDING') {
+      if (rel.requestedByUserId === userId) outgoing.push({ ...item, requestedAt: rel.createdAt })
+      else incoming.push({ ...item, requestedAt: rel.createdAt })
+    }
+  }
+
+  friends.sort((a, b) => a.user.displayName.localeCompare(b.user.displayName))
+  incoming.sort((a, b) => b.requestedAt - a.requestedAt)
+  outgoing.sort((a, b) => b.requestedAt - a.requestedAt)
+  blocked.sort((a, b) => b.blockedAt - a.blockedAt)
+
+  return { friends, incoming, outgoing, blocked }
+}
+
+export function areFriends(userIdA: string, userIdB: string): boolean {
+  if (userIdA === userIdB) return false
+  const pair = normalizedPair(userIdA, userIdB)
+  const rel = db.friendships.find((f) => f.userAId === pair.userAId && f.userBId === pair.userBId)
+  return rel?.status === 'ACCEPTED'
+}
+
+export function sendFriendRequest(args: { fromUserId: string; toIdentity: string }): { targetUserId: string; status: 'PENDING' | 'ACCEPTED' } {
+  const fromUser = db.users.find((u) => u.id === args.fromUserId)
+  if (!fromUser) throw new Error('FROM_USER_NOT_FOUND')
+
+  const toUser = findUserByEmailOrDisplayName(args.toIdentity)
+  if (!toUser) throw new Error('TARGET_USER_NOT_FOUND')
+  if (toUser.id === fromUser.id) throw new Error('CANNOT_FRIEND_SELF')
+
+  const pair = normalizedPair(fromUser.id, toUser.id)
+  const rel = db.friendships.find((f) => f.userAId === pair.userAId && f.userBId === pair.userBId)
+
+  if (!rel) {
+    const now = Date.now()
+    db.friendships.push({
+      userAId: pair.userAId,
+      userBId: pair.userBId,
+      status: 'PENDING',
+      requestedByUserId: fromUser.id,
+      createdAt: now,
+      updatedAt: now,
+    })
+    persistDb()
+    return { targetUserId: toUser.id, status: 'PENDING' }
+  }
+
+  if (rel.status === 'BLOCKED') throw new Error('FRIENDSHIP_BLOCKED')
+  if (rel.status === 'ACCEPTED') throw new Error('ALREADY_FRIENDS')
+
+  if (rel.status === 'PENDING') {
+    if (rel.requestedByUserId === fromUser.id) throw new Error('REQUEST_ALREADY_SENT')
+    rel.status = 'ACCEPTED'
+    rel.updatedAt = Date.now()
+    persistDb()
+    return { targetUserId: toUser.id, status: 'ACCEPTED' }
+  }
+
+  throw new Error('FRIEND_REQUEST_FAILED')
+}
+
+export function respondToFriendRequest(args: { userId: string; friendUserId: string; accept: boolean }): { status: 'ACCEPTED' | 'DECLINED' } {
+  const pair = normalizedPair(args.userId, args.friendUserId)
+  const rel = db.friendships.find((f) => f.userAId === pair.userAId && f.userBId === pair.userBId)
+  if (!rel || rel.status !== 'PENDING') throw new Error('REQUEST_NOT_FOUND')
+  if (rel.requestedByUserId === args.userId) throw new Error('NOT_INCOMING_REQUEST')
+
+  if (args.accept) {
+    rel.status = 'ACCEPTED'
+    rel.updatedAt = Date.now()
+    persistDb()
+    return { status: 'ACCEPTED' }
+  }
+
+  db.friendships = db.friendships.filter((f) => f !== rel)
+  persistDb()
+  return { status: 'DECLINED' }
+}
+
+export function removeFriend(args: { userId: string; friendUserId: string }): void {
+  const pair = normalizedPair(args.userId, args.friendUserId)
+  const before = db.friendships.length
+  db.friendships = db.friendships.filter((f) => !(f.userAId === pair.userAId && f.userBId === pair.userBId))
+  if (db.friendships.length !== before) persistDb()
+}
+
+export function blockUser(args: { userId: string; friendUserId: string }): void {
+  if (args.userId === args.friendUserId) throw new Error('CANNOT_BLOCK_SELF')
+  const pair = normalizedPair(args.userId, args.friendUserId)
+  const rel = db.friendships.find((f) => f.userAId === pair.userAId && f.userBId === pair.userBId)
+  const now = Date.now()
+  if (!rel) {
+    db.friendships.push({
+      userAId: pair.userAId,
+      userBId: pair.userBId,
+      status: 'BLOCKED',
+      requestedByUserId: args.userId,
+      createdAt: now,
+      updatedAt: now,
+    })
+  } else {
+    rel.status = 'BLOCKED'
+    rel.requestedByUserId = args.userId
+    rel.updatedAt = now
+  }
+  persistDb()
 }
 
 export function setUserAutodartsDevice(args: { userId: string; deviceId: string | null }): PublicUser | null {
@@ -216,7 +377,7 @@ function loadDb(): AuthStoreData {
     const dir = path.dirname(dataFile)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     if (!fs.existsSync(dataFile)) {
-      const initial: AuthStoreData = { users: [], sessions: [] }
+      const initial: AuthStoreData = { users: [], sessions: [], friendships: [] }
       fs.writeFileSync(dataFile, JSON.stringify(initial, null, 2), 'utf8')
       return initial
     }
@@ -226,9 +387,10 @@ function loadDb(): AuthStoreData {
     return {
       users: Array.isArray(parsed?.users) ? parsed.users : [],
       sessions: Array.isArray(parsed?.sessions) ? parsed.sessions : [],
+      friendships: Array.isArray(parsed?.friendships) ? parsed.friendships : [],
     }
   } catch {
-    return { users: [], sessions: [] }
+    return { users: [], sessions: [], friendships: [] }
   }
 }
 
@@ -236,4 +398,35 @@ function persistDb(): void {
   const dir = path.dirname(dataFile)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(dataFile, JSON.stringify(db, null, 2), 'utf8')
+}
+
+function normalizedPair(userIdA: string, userIdB: string): { userAId: string; userBId: string } {
+  return userIdA < userIdB ? { userAId: userIdA, userBId: userIdB } : { userAId: userIdB, userBId: userIdA }
+}
+
+function otherSide(rel: FriendshipRecord, userId: string): string | null {
+  if (rel.userAId === userId) return rel.userBId
+  if (rel.userBId === userId) return rel.userAId
+  return null
+}
+
+function toFriendSummary(u: UserRecord): FriendSummary {
+  return {
+    userId: u.id,
+    email: u.email,
+    displayName: u.displayName,
+  }
+}
+
+function findUserByEmailOrDisplayName(identity: string): UserRecord | null {
+  const raw = identity.trim()
+  if (!raw) return null
+
+  const emailMatch = db.users.find((u) => u.email === raw.toLowerCase())
+  if (emailMatch) return emailMatch
+
+  const byDisplay = db.users.filter((u) => u.displayName.toLowerCase() === raw.toLowerCase())
+  if (byDisplay.length === 1) return byDisplay[0]
+  if (byDisplay.length > 1) throw new Error('DISPLAY_NAME_AMBIGUOUS')
+  return null
 }

@@ -4,16 +4,22 @@ import http from 'http'
 import next from 'next'
 import path from 'path'
 import { randomBytes } from 'crypto'
-import { Server } from 'socket.io'
+import { Server, type Socket } from 'socket.io'
 import { z } from 'zod'
 import {
+  areFriends,
   authenticateUser,
+  blockUser,
   createSession,
   getUserById,
   getUserAutodartsCredentials,
   getUserBySessionToken,
+  listFriendState,
+  removeFriend,
   registerUser,
+  respondToFriendRequest,
   revokeSession,
+  sendFriendRequest,
   setUserAutodartsCredentials,
   setUserAutodartsDevice,
 } from './auth/store'
@@ -48,9 +54,34 @@ function bearerTokenFromReq(req: express.Request): string | null {
   return auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : null
 }
 
+function requireAuthedUser(req: express.Request): ReturnType<typeof getUserBySessionToken> {
+  const token = bearerTokenFromReq(req)
+  return getUserBySessionToken(token)
+}
+
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+const onlineSocketsByUserId = new Map<string, Set<string>>()
+
+function isUserOnline(userId: string): boolean {
+  const sockets = onlineSocketsByUserId.get(userId)
+  return Boolean(sockets && sockets.size > 0)
+}
+
+function addOnlineSocket(userId: string, socketId: string): void {
+  const next = onlineSocketsByUserId.get(userId) ?? new Set<string>()
+  next.add(socketId)
+  onlineSocketsByUserId.set(userId, next)
+}
+
+function removeOnlineSocket(userId: string, socketId: string): void {
+  const next = onlineSocketsByUserId.get(userId)
+  if (!next) return
+  next.delete(socketId)
+  if (next.size === 0) onlineSocketsByUserId.delete(userId)
+}
 
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ ok: true })
@@ -86,6 +117,23 @@ const updateAutodartsCredentialsSchema = z.object({
   apiBase: z.string().url().optional().nullable(),
   wsBase: z.string().url().optional().nullable(),
   clear: z.boolean().optional(),
+})
+
+const friendRequestSchema = z.object({
+  identity: z.string().trim().min(1).max(160),
+})
+
+const friendRespondSchema = z.object({
+  friendUserId: z.string().trim().min(1).max(128),
+  accept: z.boolean(),
+})
+
+const friendRemoveSchema = z.object({
+  friendUserId: z.string().trim().min(1).max(128),
+})
+
+const friendBlockSchema = z.object({
+  friendUserId: z.string().trim().min(1).max(128),
 })
 
 app.post('/api/auth/register', (req, res) => {
@@ -137,6 +185,140 @@ app.get('/api/auth/me', (req, res) => {
     return
   }
   res.status(200).json({ ok: true, user })
+})
+
+app.get('/api/friends/me', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+
+  const state = listFriendState(user.id)
+  res.status(200).json({
+    ok: true,
+    friends: state.friends.map((f) => ({ ...f, online: isUserOnline(f.user.userId) })),
+    incoming: state.incoming.map((f) => ({ ...f, online: isUserOnline(f.user.userId) })),
+    outgoing: state.outgoing.map((f) => ({ ...f, online: isUserOnline(f.user.userId) })),
+    blocked: state.blocked,
+  })
+})
+
+app.post('/api/friends/request', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+
+  try {
+    enforceRateLimit(requestRateByUserId, user.id, 8, 60_000)
+    const body = friendRequestSchema.parse(req.body)
+    const result = sendFriendRequest({ fromUserId: user.id, toIdentity: body.identity })
+    if (result.status === 'PENDING') {
+      const from = getUserById(user.id)
+      const targetSockets = [...(onlineSocketsByUserId.get(result.targetUserId) ?? new Set<string>())]
+      for (const sid of targetSockets) {
+        io.to(sid).emit('friends:requestReceived', {
+          from: from ? { userId: from.id, displayName: from.displayName } : { userId: user.id, displayName: 'Friend' },
+        })
+      }
+    }
+    res.status(200).json({ ok: true, status: result.status, targetUserId: result.targetUserId })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'FRIEND_REQUEST_FAILED'
+    if (message === 'TARGET_USER_NOT_FOUND') {
+      res.status(404).json({ ok: false, message: 'No account found for that email or display name' })
+      return
+    }
+    if (message === 'DISPLAY_NAME_AMBIGUOUS') {
+      res.status(409).json({ ok: false, message: 'Display name is not unique. Add by email instead.' })
+      return
+    }
+    if (message === 'CANNOT_FRIEND_SELF') {
+      res.status(400).json({ ok: false, message: 'You cannot friend yourself' })
+      return
+    }
+    if (message === 'ALREADY_FRIENDS') {
+      res.status(409).json({ ok: false, message: 'You are already friends' })
+      return
+    }
+    if (message === 'REQUEST_ALREADY_SENT') {
+      res.status(409).json({ ok: false, message: 'Friend request already sent' })
+      return
+    }
+    if (message === 'FRIENDSHIP_BLOCKED') {
+      res.status(403).json({ ok: false, message: 'Friend request blocked' })
+      return
+    }
+    if (message === 'RATE_LIMITED') {
+      res.status(429).json({ ok: false, message: 'Too many friend requests, try again shortly' })
+      return
+    }
+    res.status(400).json({ ok: false, message: 'Invalid friend request' })
+  }
+})
+
+app.post('/api/friends/respond', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+
+  try {
+    const body = friendRespondSchema.parse(req.body)
+    const result = respondToFriendRequest({ userId: user.id, friendUserId: body.friendUserId, accept: body.accept })
+    res.status(200).json({ ok: true, status: result.status })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'FRIEND_REQUEST_FAILED'
+    if (message === 'REQUEST_NOT_FOUND') {
+      res.status(404).json({ ok: false, message: 'Friend request not found' })
+      return
+    }
+    if (message === 'NOT_INCOMING_REQUEST') {
+      res.status(403).json({ ok: false, message: 'You can only respond to incoming requests' })
+      return
+    }
+    res.status(400).json({ ok: false, message: 'Invalid friend response' })
+  }
+})
+
+app.post('/api/friends/remove', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+
+  try {
+    const body = friendRemoveSchema.parse(req.body)
+    removeFriend({ userId: user.id, friendUserId: body.friendUserId })
+    res.status(200).json({ ok: true })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Invalid remove request' })
+  }
+})
+
+app.post('/api/friends/block', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+
+  try {
+    const body = friendBlockSchema.parse(req.body)
+    blockUser({ userId: user.id, friendUserId: body.friendUserId })
+    res.status(200).json({ ok: true })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'BLOCK_FAILED'
+    if (message === 'CANNOT_BLOCK_SELF') {
+      res.status(400).json({ ok: false, message: 'You cannot block yourself' })
+      return
+    }
+    res.status(400).json({ ok: false, message: 'Invalid block request' })
+  }
 })
 
 app.post('/api/auth/autodarts', (req, res) => {
@@ -202,33 +384,95 @@ app.get('/api/stats/me', (req, res) => {
 app.get('/api/stats/global', (_req, res) => {
   const records = getGlobalRecords()
   const withNames = {
-    ...records,
-    mostWins: records.mostWins
-      ? {
-          ...records.mostWins,
-          displayName: getUserById(records.mostWins.userId)?.displayName ?? null,
-        }
-      : null,
-    highestCheckout: records.highestCheckout
-      ? {
-          ...records.highestCheckout,
-          displayName: getUserById(records.highestCheckout.userId)?.displayName ?? null,
-        }
-      : null,
-    highestScore: records.highestScore
-      ? {
-          ...records.highestScore,
-          displayName: getUserById(records.highestScore.userId)?.displayName ?? null,
-        }
-      : null,
-    bestThreeDartAverage: records.bestThreeDartAverage
-      ? {
-          ...records.bestThreeDartAverage,
-          displayName: getUserById(records.bestThreeDartAverage.userId)?.displayName ?? null,
-        }
-      : null,
+    allTime: {
+      mostWins: records.allTime.mostWins
+        ? {
+            ...records.allTime.mostWins,
+            displayName: getUserById(records.allTime.mostWins.userId)?.displayName ?? null,
+          }
+        : null,
+      highestCheckout: records.allTime.highestCheckout
+        ? {
+            ...records.allTime.highestCheckout,
+            displayName: getUserById(records.allTime.highestCheckout.userId)?.displayName ?? null,
+          }
+        : null,
+      highestScore: records.allTime.highestScore
+        ? {
+            ...records.allTime.highestScore,
+            displayName: getUserById(records.allTime.highestScore.userId)?.displayName ?? null,
+          }
+        : null,
+      bestThreeDartAverage: records.allTime.bestThreeDartAverage
+        ? {
+            ...records.allTime.bestThreeDartAverage,
+            displayName: getUserById(records.allTime.bestThreeDartAverage.userId)?.displayName ?? null,
+          }
+        : null,
+    },
+    lastTen: {
+      mostWins: records.lastTen.mostWins
+        ? {
+            ...records.lastTen.mostWins,
+            displayName: getUserById(records.lastTen.mostWins.userId)?.displayName ?? null,
+          }
+        : null,
+      highestCheckout: records.lastTen.highestCheckout
+        ? {
+            ...records.lastTen.highestCheckout,
+            displayName: getUserById(records.lastTen.highestCheckout.userId)?.displayName ?? null,
+          }
+        : null,
+      highestScore: records.lastTen.highestScore
+        ? {
+            ...records.lastTen.highestScore,
+            displayName: getUserById(records.lastTen.highestScore.userId)?.displayName ?? null,
+          }
+        : null,
+      bestThreeDartAverage: records.lastTen.bestThreeDartAverage
+        ? {
+            ...records.lastTen.bestThreeDartAverage,
+            displayName: getUserById(records.lastTen.bestThreeDartAverage.userId)?.displayName ?? null,
+          }
+        : null,
+    },
+    updatedAt: records.updatedAt,
   }
   res.status(200).json({ ok: true, records: withNames })
+})
+
+app.get('/api/stats/friends', (req, res) => {
+  const token = bearerTokenFromReq(req)
+  const user = getUserBySessionToken(token)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+
+  const friendState = listFriendState(user.id)
+  const ids = [user.id, ...friendState.friends.map((f) => f.user.userId)]
+  const rows = ids
+    .map((uid) => {
+      const profile = getUserById(uid)
+      if (!profile) return null
+      const stats = getUserStats(uid)
+      return {
+        userId: uid,
+        displayName: profile.displayName,
+        isYou: uid === user.id,
+        allTime: stats.allTime,
+        lastTen: stats.lastTen,
+      }
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => {
+      if (a.isYou && !b.isYou) return -1
+      if (!a.isYou && b.isYou) return 1
+      if ((b.allTime.wins ?? 0) !== (a.allTime.wins ?? 0)) return (b.allTime.wins ?? 0) - (a.allTime.wins ?? 0)
+      return (b.allTime.threeDartAvg ?? 0) - (a.allTime.threeDartAvg ?? 0)
+    })
+
+  res.status(200).json({ ok: true, rows })
 })
 
 app.get('/api/autodarts/status', (_req, res) => {
@@ -315,6 +559,17 @@ const x01SettingsSchema = z.object({
   masterOut: z.boolean(),
 })
 
+const challengeMatchSettings: X01Settings = {
+  gameType: 'X01',
+  startScore: 501,
+  legsToWin: 3,
+  setsEnabled: false,
+  setsToWin: 0,
+  doubleIn: false,
+  doubleOut: true,
+  masterOut: false,
+}
+
 const dartSchema: z.ZodType<Dart> = z.object({
   segment: z.number().int(),
   multiplier: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
@@ -386,6 +641,19 @@ const autodartsMockDartSchema = z.object({
   multiplier: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
 })
 
+const socialIdentifySchema = z.object({
+  authToken: z.string().trim().min(1).max(256),
+})
+
+const challengeFriendSchema = z.object({
+  friendUserId: z.string().trim().min(1).max(128),
+})
+
+const challengeRespondSchema = z.object({
+  challengeId: z.string().trim().min(1).max(128),
+  accept: z.boolean(),
+})
+
 type PendingAutodartsTurn = {
   playerId: string
   legIndex: number
@@ -395,7 +663,28 @@ type PendingAutodartsTurn = {
   reason: 'THREE_DARTS' | 'BUST' | 'CHECKOUT' | null
 }
 
+type ChallengeInvite = {
+  id: string
+  fromUserId: string
+  toUserId: string
+  createdAt: number
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED'
+}
+
 const autodartsPendingTurnByRoomCode = new Map<string, PendingAutodartsTurn>()
+const challengeById = new Map<string, ChallengeInvite>()
+const requestRateByUserId = new Map<string, number[]>()
+const challengeRateByUserId = new Map<string, number[]>()
+
+function enforceRateLimit(map: Map<string, number[]>, userId: string, maxCount: number, windowMs: number): void {
+  const now = Date.now()
+  const recent = (map.get(userId) ?? []).filter((ts) => now - ts <= windowMs)
+  if (recent.length >= maxCount) {
+    throw new GameRuleError('RATE_LIMITED', 'Too many requests, try again shortly')
+  }
+  recent.push(now)
+  map.set(userId, recent)
+}
 
 function getAutodartsPendingTurn(roomCode: string) {
   const pending = autodartsPendingTurnByRoomCode.get(roomCode)
@@ -849,6 +1138,17 @@ function toTurnInput(args: { settings: X01Settings; total?: number; darts?: Dart
 }
 
 io.on('connection', (socket) => {
+  function setSocketUser(userId?: string) {
+    const prev = (socket.data as any).userId as string | undefined
+    if (prev && prev !== userId) removeOnlineSocket(prev, socket.id)
+    if (userId) {
+      setSocketUser(userId)
+      addOnlineSocket(userId, socket.id)
+    } else {
+      delete (socket.data as any).userId
+    }
+  }
+
   function detachFromRoom(code: string) {
     try {
       const room = getRoom(code)
@@ -890,6 +1190,116 @@ io.on('connection', (socket) => {
     return { userId: user.id, displayName: user.displayName }
   }
 
+  socket.on('social:identify', (raw, cb) => {
+    try {
+      const { authToken } = socialIdentifySchema.parse(raw)
+      const auth = resolveAuthIdentity(authToken)
+      if (!auth) throw new GameRuleError('AUTH_INVALID', 'Authentication token is invalid or expired')
+      setSocketUser(auth.userId)
+      cb?.({ ok: true, user: { id: auth.userId, displayName: auth.displayName } })
+    } catch (err) {
+      const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid identify request')
+      cb?.({ ok: false, code: e.code, message: e.message })
+    }
+  })
+
+  socket.on('friends:challenge', (raw, cb) => {
+    try {
+      const { friendUserId } = challengeFriendSchema.parse(raw)
+      const fromUserId = (socket.data as any).userId as string | undefined
+      if (!fromUserId) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
+      if (!areFriends(fromUserId, friendUserId)) throw new GameRuleError('NOT_FRIENDS', 'You can only challenge accepted friends')
+      if (!isUserOnline(friendUserId)) throw new GameRuleError('FRIEND_OFFLINE', 'Friend is offline')
+
+      enforceRateLimit(challengeRateByUserId, fromUserId, 10, 60_000)
+
+      const fromUser = getUserById(fromUserId)
+      if (!fromUser) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
+
+      const invite: ChallengeInvite = {
+        id: randomId(10),
+        fromUserId,
+        toUserId: friendUserId,
+        createdAt: Date.now(),
+        status: 'PENDING',
+      }
+      challengeById.set(invite.id, invite)
+
+      const targetSocketIds = [...(onlineSocketsByUserId.get(friendUserId) ?? new Set<string>())]
+      for (const targetSocketId of targetSocketIds) {
+        io.to(targetSocketId).emit('friends:challengeInvite', {
+          challengeId: invite.id,
+          from: { userId: fromUser.id, displayName: fromUser.displayName },
+          createdAt: invite.createdAt,
+        })
+      }
+
+      cb?.({ ok: true, challengeId: invite.id })
+    } catch (err) {
+      const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid challenge request')
+      cb?.({ ok: false, code: e.code, message: e.message })
+    }
+  })
+
+  socket.on('friends:challengeRespond', (raw, cb) => {
+    try {
+      const { challengeId, accept } = challengeRespondSchema.parse(raw)
+      const toUserId = (socket.data as any).userId as string | undefined
+      if (!toUserId) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
+
+      const invite = challengeById.get(challengeId)
+      if (!invite || invite.status !== 'PENDING') throw new GameRuleError('CHALLENGE_NOT_FOUND', 'Challenge not found')
+      if (invite.toUserId !== toUserId) throw new GameRuleError('NOT_ALLOWED', 'Not your challenge')
+      if (Date.now() - invite.createdAt > 2 * 60_000) {
+        invite.status = 'EXPIRED'
+        throw new GameRuleError('CHALLENGE_EXPIRED', 'Challenge expired')
+      }
+
+      if (!accept) {
+        invite.status = 'DECLINED'
+        const fromSockets = [...(onlineSocketsByUserId.get(invite.fromUserId) ?? new Set<string>())]
+        for (const sid of fromSockets) {
+          io.to(sid).emit('friends:challengeResolved', { challengeId, accepted: false })
+        }
+        cb?.({ ok: true, accepted: false })
+        return
+      }
+
+      const fromUser = getUserById(invite.fromUserId)
+      const toUser = getUserById(invite.toUserId)
+      if (!fromUser || !toUser) throw new GameRuleError('CHALLENGE_NOT_FOUND', 'Challenge users not found')
+
+      const room = createRoom({ hostName: fromUser.displayName, settings: challengeMatchSettings })
+      room.title = `${fromUser.displayName} vs ${toUser.displayName}`
+      room.isPublic = false
+
+      invite.status = 'ACCEPTED'
+
+      const fromSockets = [...(onlineSocketsByUserId.get(invite.fromUserId) ?? new Set<string>())]
+      const toSockets = [...(onlineSocketsByUserId.get(invite.toUserId) ?? new Set<string>())]
+      for (const sid of fromSockets) {
+        io.to(sid).emit('friends:challengeMatchReady', {
+          challengeId,
+          roomCode: room.code,
+          hostSecret: room.hostSecret,
+          by: { userId: toUser.id, displayName: toUser.displayName },
+        })
+      }
+      for (const sid of toSockets) {
+        io.to(sid).emit('friends:challengeMatchReady', {
+          challengeId,
+          roomCode: room.code,
+          by: { userId: fromUser.id, displayName: fromUser.displayName },
+        })
+      }
+
+      cb?.({ ok: true, accepted: true, roomCode: room.code })
+    } catch (err) {
+      const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid challenge response')
+      cb?.({ ok: false, code: e.code, message: e.message })
+    }
+  })
+
   socket.on('room:create', (raw, cb) => {
     try {
       const { name, authToken, settings, title, isPublic } = createSchema.parse(raw)
@@ -904,7 +1314,7 @@ io.on('connection', (socket) => {
       room.title = (title ?? '').trim()
       room.isPublic = Boolean(isPublic)
       addClient(room, { socketId: socket.id, name: effectiveName, userId, isHost: true, role: 'PLAYER' })
-      ;(socket.data as any).userId = userId
+      setSocketUser(userId)
 
       // By default, the host is also a player in the lobby.
       const hostPlayer = ensurePlayer(room.code, effectiveName, socket.id, userId)
@@ -1026,7 +1436,7 @@ io.on('connection', (socket) => {
         isHost: hostSecret === room.hostSecret,
         role,
       })
-      ;(socket.data as any).userId = userId
+      setSocketUser(userId)
 
       let playerId: string | undefined
       if (role === 'PLAYER') {
@@ -1352,6 +1762,8 @@ io.on('connection', (socket) => {
   })
 
   socket.on('disconnect', () => {
+    const userId = (socket.data as any).userId as string | undefined
+    if (userId) removeOnlineSocket(userId, socket.id)
     const code = (socket.data as any).roomCode as string | undefined
     if (!code) return
     detachFromRoom(code)

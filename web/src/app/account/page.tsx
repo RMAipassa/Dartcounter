@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { getServerUrl } from '@/lib/config'
+import { getSocket } from '@/lib/socket'
 
 type MeUser = {
   id: string
@@ -46,10 +47,44 @@ type MeStats = {
 }
 
 type GlobalRecords = {
-  mostWins: { userId: string; value: number; displayName?: string | null } | null
-  highestCheckout: { userId: string; value: number; displayName?: string | null } | null
-  highestScore: { userId: string; value: number; displayName?: string | null } | null
-  bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
+  allTime: {
+    mostWins: { userId: string; value: number; displayName?: string | null } | null
+    highestCheckout: { userId: string; value: number; displayName?: string | null } | null
+    highestScore: { userId: string; value: number; displayName?: string | null } | null
+    bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
+  }
+  lastTen: {
+    mostWins: { userId: string; value: number; displayName?: string | null } | null
+    highestCheckout: { userId: string; value: number; displayName?: string | null } | null
+    highestScore: { userId: string; value: number; displayName?: string | null } | null
+    bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
+  }
+}
+
+type FriendLeaderboardRow = {
+  userId: string
+  displayName: string
+  isYou: boolean
+  allTime: {
+    totalGames: number
+    wins: number
+    losses: number
+    winRate: number | null
+    threeDartAvg: number | null
+    checkoutRate: number | null
+    highestCheckout: number | null
+    highestScore: number
+  }
+  lastTen: {
+    games: number
+    wins: number
+    losses: number
+    winRate: number | null
+    threeDartAvg: number | null
+    checkoutRate: number | null
+    highestCheckout: number | null
+    highestScore: number
+  }
 }
 
 type BridgeHealth = {
@@ -58,6 +93,19 @@ type BridgeHealth = {
   status?: number
   error?: string
   health?: { mode?: string; sessions?: number }
+}
+
+type FriendUser = {
+  userId: string
+  email: string
+  displayName: string
+}
+
+type FriendsState = {
+  friends: Array<{ user: FriendUser; since: number; online: boolean }>
+  incoming: Array<{ user: FriendUser; requestedAt: number; online: boolean }>
+  outgoing: Array<{ user: FriendUser; requestedAt: number; online: boolean }>
+  blocked: Array<{ user: FriendUser; blockedAt: number }>
 }
 
 export default function AccountPage() {
@@ -78,6 +126,9 @@ export default function AccountPage() {
   const [autodartsApiBaseInput, setAutodartsApiBaseInput] = useState('')
   const [autodartsWsBaseInput, setAutodartsWsBaseInput] = useState('')
   const [bridgeHealth, setBridgeHealth] = useState<BridgeHealth | null>(null)
+  const [friends, setFriends] = useState<FriendsState | null>(null)
+  const [friendIdentityInput, setFriendIdentityInput] = useState('')
+  const [friendsLeaderboard, setFriendsLeaderboard] = useState<FriendLeaderboardRow[]>([])
 
   useEffect(() => {
     void refreshMe(serverUrl, setMe, setStats)
@@ -91,6 +142,20 @@ export default function AccountPage() {
     setAutodartsApiBaseInput(me.autodartsApiBase ?? '')
     setAutodartsWsBaseInput(me.autodartsWsBase ?? '')
   }, [me])
+
+  useEffect(() => {
+    if (!me) {
+      setFriends(null)
+      setFriendsLeaderboard([])
+      return
+    }
+    const token = localStorage.getItem('dc_authToken')
+    if (!token) return
+    const socket = getSocket(serverUrl)
+    void socket.emitWithAck('social:identify', { authToken: token })
+    void refreshFriends(serverUrl, setFriends)
+    void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+  }, [me, serverUrl])
 
   async function submit() {
     setError(null)
@@ -151,6 +216,102 @@ export default function AccountPage() {
       setAutodartsPasswordInput('')
       setAutodartsApiBaseInput('')
       setAutodartsWsBaseInput('')
+      setFriends(null)
+      setFriendsLeaderboard([])
+      setBusy(false)
+    }
+  }
+
+  async function sendFriendRequest() {
+    setError(null)
+    setBusy(true)
+    try {
+      const token = localStorage.getItem('dc_authToken')
+      if (!token) throw new Error('Not signed in')
+      const res = await fetch(`${serverUrl}/api/friends/request`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ identity: friendIdentityInput.trim() }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Could not send friend request')
+      setFriendIdentityInput('')
+      await refreshFriends(serverUrl, setFriends)
+      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function respondFriend(friendUserId: string, accept: boolean) {
+    setError(null)
+    setBusy(true)
+    try {
+      const token = localStorage.getItem('dc_authToken')
+      if (!token) throw new Error('Not signed in')
+      const res = await fetch(`${serverUrl}/api/friends/respond`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ friendUserId, accept }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Could not respond to friend request')
+      await refreshFriends(serverUrl, setFriends)
+      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeFriendship(friendUserId: string) {
+    setError(null)
+    setBusy(true)
+    try {
+      const token = localStorage.getItem('dc_authToken')
+      if (!token) throw new Error('Not signed in')
+      const res = await fetch(`${serverUrl}/api/friends/remove`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ friendUserId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Could not remove friend')
+      await refreshFriends(serverUrl, setFriends)
+      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function challengeFriend(friendUserId: string) {
+    setError(null)
+    setBusy(true)
+    try {
+      const token = localStorage.getItem('dc_authToken')
+      if (!token) throw new Error('Not signed in')
+      const socket = getSocket(serverUrl)
+      const identifyRes = await socket.emitWithAck('social:identify', { authToken: token })
+      if (!identifyRes?.ok) throw new Error(identifyRes?.message ?? 'Not authenticated on socket')
+      const res = await socket.emitWithAck('friends:challenge', { friendUserId })
+      if (!res?.ok) throw new Error(res?.message ?? 'Could not send challenge')
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
       setBusy(false)
     }
   }
@@ -347,6 +508,81 @@ export default function AccountPage() {
         </div>
       )}
 
+      {me ? (
+        <div className="card" style={{ padding: 16 }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 16 }}>Friends</div>
+            <button className="btn" disabled={busy} onClick={() => void refreshFriends(serverUrl, setFriends)}>
+              Refresh friends
+            </button>
+          </div>
+
+          <div className="col" style={{ marginTop: 10 }}>
+            <label className="help">Add friend by email or display name</label>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <input
+                className="input"
+                value={friendIdentityInput}
+                onChange={(e) => setFriendIdentityInput(e.target.value)}
+                placeholder="friend@example.com or Ruben"
+              />
+              <button className="btn" disabled={busy || !friendIdentityInput.trim()} onClick={sendFriendRequest}>
+                Send request
+              </button>
+            </div>
+          </div>
+
+          <div className="col" style={{ marginTop: 12 }}>
+            <div className="help">Friends</div>
+            {(friends?.friends ?? []).length === 0 ? <span className="pill">No friends yet</span> : null}
+            {(friends?.friends ?? []).map((f) => (
+              <div key={f.user.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="pill">{f.user.displayName}</span>
+                <span className="pill">{f.user.email}</span>
+                <span className="pill" style={{ color: f.online ? 'var(--good)' : 'var(--muted)' }}>{f.online ? 'online' : 'offline'}</span>
+                <button className="btn" disabled={busy || !f.online} onClick={() => void challengeFriend(f.user.userId)}>
+                  Challenge
+                </button>
+                <button className="btn" disabled={busy} onClick={() => void removeFriendship(f.user.userId)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="col" style={{ marginTop: 12 }}>
+            <div className="help">Incoming requests</div>
+            {(friends?.incoming ?? []).length === 0 ? <span className="pill">None</span> : null}
+            {(friends?.incoming ?? []).map((f) => (
+              <div key={f.user.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="pill">{f.user.displayName}</span>
+                <span className="pill">{f.user.email}</span>
+                <button className="btn" disabled={busy} onClick={() => void respondFriend(f.user.userId, true)}>
+                  Accept
+                </button>
+                <button className="btn" disabled={busy} onClick={() => void respondFriend(f.user.userId, false)}>
+                  Decline
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="col" style={{ marginTop: 12 }}>
+            <div className="help">Outgoing requests</div>
+            {(friends?.outgoing ?? []).length === 0 ? <span className="pill">None</span> : null}
+            {(friends?.outgoing ?? []).map((f) => (
+              <div key={f.user.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="pill">{f.user.displayName}</span>
+                <span className="pill">{f.user.email}</span>
+                <button className="btn" disabled={busy} onClick={() => void removeFriendship(f.user.userId)}>
+                  Cancel request
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {stats ? (
         <div className="grid2">
           <div className="card" style={{ padding: 16 }}>
@@ -419,11 +655,43 @@ export default function AccountPage() {
       {records ? (
         <div className="card" style={{ padding: 16 }}>
           <div style={{ fontSize: 16, marginBottom: 8 }}>Global records</div>
-          <div className="row" style={{ flexWrap: 'wrap' }}>
-            <span className="pill">Most wins: {recordLabel(records.mostWins)}</span>
-            <span className="pill">Highest checkout: {recordLabel(records.highestCheckout)}</span>
-            <span className="pill">Highest score: {recordLabel(records.highestScore)}</span>
-            <span className="pill">Best avg: {recordLabel(records.bestThreeDartAverage)}</span>
+          <div className="help">All time</div>
+          <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
+            <span className="pill">Most wins: {recordLabel(records.allTime.mostWins)}</span>
+            <span className="pill">Highest checkout: {recordLabel(records.allTime.highestCheckout)}</span>
+            <span className="pill">Highest score: {recordLabel(records.allTime.highestScore)}</span>
+            <span className="pill">Best avg: {recordLabel(records.allTime.bestThreeDartAverage)}</span>
+          </div>
+          <div className="help" style={{ marginTop: 10 }}>Last 10 games</div>
+          <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
+            <span className="pill">Most wins: {recordLabel(records.lastTen.mostWins)}</span>
+            <span className="pill">Highest checkout: {recordLabel(records.lastTen.highestCheckout)}</span>
+            <span className="pill">Highest score: {recordLabel(records.lastTen.highestScore)}</span>
+            <span className="pill">Best avg: {recordLabel(records.lastTen.bestThreeDartAverage)}</span>
+          </div>
+        </div>
+      ) : null}
+
+      {me ? (
+        <div className="card" style={{ padding: 16 }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 16 }}>Friends leaderboard</div>
+            <button className="btn" disabled={busy} onClick={() => void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)}>
+              Refresh leaderboard
+            </button>
+          </div>
+          <div className="col" style={{ marginTop: 8 }}>
+            {friendsLeaderboard.length < 1 ? <span className="pill">No friend stats yet</span> : null}
+            {friendsLeaderboard.map((row) => (
+              <div key={row.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="pill" style={{ color: row.isYou ? 'var(--accent)' : 'var(--text)' }}>{row.isYou ? `${row.displayName} (You)` : row.displayName}</span>
+                <span className="pill">All-time W/L: {row.allTime.wins}/{row.allTime.losses}</span>
+                <span className="pill">All-time Avg: {row.allTime.threeDartAvg ?? '-'}</span>
+                <span className="pill">Last10 W/L: {row.lastTen.wins}/{row.lastTen.losses}</span>
+                <span className="pill">Last10 Avg: {row.lastTen.threeDartAvg ?? '-'}</span>
+                <span className="pill">Hi CO: {row.allTime.highestCheckout ?? '-'}</span>
+              </div>
+            ))}
           </div>
         </div>
       ) : null}
@@ -495,6 +763,55 @@ async function refreshBridgeHealth(serverUrl: string, setBridge: (b: BridgeHealt
     error: typeof data.error === 'string' ? data.error : undefined,
     health: typeof data.health === 'object' && data.health ? data.health : undefined,
   })
+}
+
+async function refreshFriends(serverUrl: string, setFriends: (f: FriendsState | null) => void): Promise<void> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+  if (!token) {
+    setFriends(null)
+    return
+  }
+
+  const res = await fetch(`${serverUrl}/api/friends/me`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  })
+  const data = await res.json().catch(() => null)
+  if (!res.ok || !data?.ok) {
+    setFriends(null)
+    return
+  }
+
+  setFriends({
+    friends: Array.isArray(data.friends) ? data.friends : [],
+    incoming: Array.isArray(data.incoming) ? data.incoming : [],
+    outgoing: Array.isArray(data.outgoing) ? data.outgoing : [],
+    blocked: Array.isArray(data.blocked) ? data.blocked : [],
+  })
+}
+
+async function refreshFriendsLeaderboard(
+  serverUrl: string,
+  setRows: (rows: FriendLeaderboardRow[]) => void,
+): Promise<void> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+  if (!token) {
+    setRows([])
+    return
+  }
+
+  const res = await fetch(`${serverUrl}/api/stats/friends`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  })
+  const data = await res.json().catch(() => null)
+  if (!res.ok || !data?.ok || !Array.isArray(data.rows)) {
+    setRows([])
+    return
+  }
+  setRows(data.rows as FriendLeaderboardRow[])
 }
 
 function recordLabel(record: { userId: string; value: number; displayName?: string | null } | null): string {

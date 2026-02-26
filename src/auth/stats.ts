@@ -42,10 +42,18 @@ type UserAggregateStats = {
 }
 
 type GlobalRecords = {
-  mostWins: { userId: string; value: number } | null
-  highestCheckout: { userId: string; value: number } | null
-  highestScore: { userId: string; value: number } | null
-  bestThreeDartAverage: { userId: string; value: number } | null
+  allTime: {
+    mostWins: { userId: string; value: number } | null
+    highestCheckout: { userId: string; value: number } | null
+    highestScore: { userId: string; value: number } | null
+    bestThreeDartAverage: { userId: string; value: number } | null
+  }
+  lastTen: {
+    mostWins: { userId: string; value: number } | null
+    highestCheckout: { userId: string; value: number } | null
+    highestScore: { userId: string; value: number } | null
+    bestThreeDartAverage: { userId: string; value: number } | null
+  }
   updatedAt: number
 }
 
@@ -88,6 +96,7 @@ export type UserStatsView = {
 
 const statsFile = path.join(process.cwd(), 'data', 'user-stats.json')
 let db: StatsStoreData = loadDb()
+rebuildGlobalRecords()
 
 export function recordFinishedMatch(args: {
   roomCode: string
@@ -223,30 +232,57 @@ function summarizeLastTen(games: GameSummary[]): UserStatsView['lastTen'] {
 }
 
 function rebuildGlobalRecords(): void {
-  let mostWins: GlobalRecords['mostWins'] = null
-  let highestCheckout: GlobalRecords['highestCheckout'] = null
-  let highestScore: GlobalRecords['highestScore'] = null
-  let bestAverage: GlobalRecords['bestThreeDartAverage'] = null
+  let allTimeMostWins: GlobalRecords['allTime']['mostWins'] = null
+  let allTimeHighestCheckout: GlobalRecords['allTime']['highestCheckout'] = null
+  let allTimeHighestScore: GlobalRecords['allTime']['highestScore'] = null
+  let allTimeBestAverage: GlobalRecords['allTime']['bestThreeDartAverage'] = null
+
+  let lastTenMostWins: GlobalRecords['lastTen']['mostWins'] = null
+  let lastTenHighestCheckout: GlobalRecords['lastTen']['highestCheckout'] = null
+  let lastTenHighestScore: GlobalRecords['lastTen']['highestScore'] = null
+  let lastTenBestAverage: GlobalRecords['lastTen']['bestThreeDartAverage'] = null
 
   for (const stat of Object.values(db.users)) {
-    if (!mostWins || stat.wins > mostWins.value) mostWins = { userId: stat.userId, value: stat.wins }
-    if (!highestCheckout || stat.highestCheckout > highestCheckout.value) {
-      highestCheckout = { userId: stat.userId, value: stat.highestCheckout }
+    if (!allTimeMostWins || stat.wins > allTimeMostWins.value) allTimeMostWins = { userId: stat.userId, value: stat.wins }
+    if (!allTimeHighestCheckout || stat.highestCheckout > allTimeHighestCheckout.value) {
+      allTimeHighestCheckout = { userId: stat.userId, value: stat.highestCheckout }
     }
-    if (!highestScore || stat.highestScore > highestScore.value) {
-      highestScore = { userId: stat.userId, value: stat.highestScore }
+    if (!allTimeHighestScore || stat.highestScore > allTimeHighestScore.value) {
+      allTimeHighestScore = { userId: stat.userId, value: stat.highestScore }
     }
-    const avg = avgFromPointsAndDarts(stat.pointsScored, stat.dartsThrown)
-    if (avg != null && (!bestAverage || avg > bestAverage.value)) {
-      bestAverage = { userId: stat.userId, value: avg }
+    const allTimeAvg = avgFromPointsAndDarts(stat.pointsScored, stat.dartsThrown)
+    if (allTimeAvg != null && (!allTimeBestAverage || allTimeAvg > allTimeBestAverage.value)) {
+      allTimeBestAverage = { userId: stat.userId, value: allTimeAvg }
+    }
+
+    const lt = summarizeLastTen(stat.lastTenGames)
+    if (!lastTenMostWins || lt.wins > lastTenMostWins.value) lastTenMostWins = { userId: stat.userId, value: lt.wins }
+    const ltCheckout = lt.highestCheckout ?? 0
+    if (!lastTenHighestCheckout || ltCheckout > lastTenHighestCheckout.value) {
+      lastTenHighestCheckout = { userId: stat.userId, value: ltCheckout }
+    }
+    if (!lastTenHighestScore || lt.highestScore > lastTenHighestScore.value) {
+      lastTenHighestScore = { userId: stat.userId, value: lt.highestScore }
+    }
+    const ltAvg = lt.threeDartAvg
+    if (ltAvg != null && (!lastTenBestAverage || ltAvg > lastTenBestAverage.value)) {
+      lastTenBestAverage = { userId: stat.userId, value: ltAvg }
     }
   }
 
   db.global = {
-    mostWins,
-    highestCheckout,
-    highestScore,
-    bestThreeDartAverage: bestAverage,
+    allTime: {
+      mostWins: allTimeMostWins,
+      highestCheckout: allTimeHighestCheckout,
+      highestScore: allTimeHighestScore,
+      bestThreeDartAverage: allTimeBestAverage,
+    },
+    lastTen: {
+      mostWins: lastTenMostWins,
+      highestCheckout: lastTenHighestCheckout,
+      highestScore: lastTenHighestScore,
+      bestThreeDartAverage: lastTenBestAverage,
+    },
     updatedAt: Date.now(),
   }
 }
@@ -319,10 +355,18 @@ function loadDb(): StatsStoreData {
       const initial: StatsStoreData = {
         users: {},
         global: {
-          mostWins: null,
-          highestCheckout: null,
-          highestScore: null,
-          bestThreeDartAverage: null,
+          allTime: {
+            mostWins: null,
+            highestCheckout: null,
+            highestScore: null,
+            bestThreeDartAverage: null,
+          },
+          lastTen: {
+            mostWins: null,
+            highestCheckout: null,
+            highestScore: null,
+            bestThreeDartAverage: null,
+          },
           updatedAt: Date.now(),
         },
       }
@@ -334,25 +378,62 @@ function loadDb(): StatsStoreData {
     const parsed = JSON.parse(raw)
     return {
       users: typeof parsed?.users === 'object' && parsed.users ? parsed.users : {},
-      global:
-        typeof parsed?.global === 'object' && parsed.global
-          ? parsed.global
-          : {
-              mostWins: null,
-              highestCheckout: null,
-              highestScore: null,
-              bestThreeDartAverage: null,
-              updatedAt: Date.now(),
-            },
+      global: {
+        allTime: {
+          mostWins:
+            typeof parsed?.global?.allTime?.mostWins === 'object' && parsed.global.allTime.mostWins
+              ? parsed.global.allTime.mostWins
+              : null,
+          highestCheckout:
+            typeof parsed?.global?.allTime?.highestCheckout === 'object' && parsed.global.allTime.highestCheckout
+              ? parsed.global.allTime.highestCheckout
+              : null,
+          highestScore:
+            typeof parsed?.global?.allTime?.highestScore === 'object' && parsed.global.allTime.highestScore
+              ? parsed.global.allTime.highestScore
+              : null,
+          bestThreeDartAverage:
+            typeof parsed?.global?.allTime?.bestThreeDartAverage === 'object' && parsed.global.allTime.bestThreeDartAverage
+              ? parsed.global.allTime.bestThreeDartAverage
+              : null,
+        },
+        lastTen: {
+          mostWins:
+            typeof parsed?.global?.lastTen?.mostWins === 'object' && parsed.global.lastTen.mostWins
+              ? parsed.global.lastTen.mostWins
+              : null,
+          highestCheckout:
+            typeof parsed?.global?.lastTen?.highestCheckout === 'object' && parsed.global.lastTen.highestCheckout
+              ? parsed.global.lastTen.highestCheckout
+              : null,
+          highestScore:
+            typeof parsed?.global?.lastTen?.highestScore === 'object' && parsed.global.lastTen.highestScore
+              ? parsed.global.lastTen.highestScore
+              : null,
+          bestThreeDartAverage:
+            typeof parsed?.global?.lastTen?.bestThreeDartAverage === 'object' && parsed.global.lastTen.bestThreeDartAverage
+              ? parsed.global.lastTen.bestThreeDartAverage
+              : null,
+        },
+        updatedAt: typeof parsed?.global?.updatedAt === 'number' ? parsed.global.updatedAt : Date.now(),
+      },
     }
   } catch {
     return {
       users: {},
       global: {
-        mostWins: null,
-        highestCheckout: null,
-        highestScore: null,
-        bestThreeDartAverage: null,
+        allTime: {
+          mostWins: null,
+          highestCheckout: null,
+          highestScore: null,
+          bestThreeDartAverage: null,
+        },
+        lastTen: {
+          mostWins: null,
+          highestCheckout: null,
+          highestScore: null,
+          bestThreeDartAverage: null,
+        },
         updatedAt: Date.now(),
       },
     }

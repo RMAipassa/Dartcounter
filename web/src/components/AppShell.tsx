@@ -120,6 +120,66 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (!serverUrl) return
+    const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+    if (!token) return
+
+    const socket = getSocket(serverUrl)
+    void socket.emitWithAck('social:identify', { authToken: token })
+
+    function onChallengeInvite(evt: any) {
+      const challengeId = String(evt?.challengeId ?? '')
+      const fromName = String(evt?.from?.displayName ?? 'A friend')
+      if (!challengeId) return
+
+      const accept = window.confirm(`${fromName} challenged you to a match. Accept now?`)
+      void socket.emitWithAck('friends:challengeRespond', { challengeId, accept }).then((res: any) => {
+        if (!res?.ok && accept) {
+          setToast(res?.message ?? 'Could not accept challenge')
+          setTimeout(() => setToast(null), 2500)
+        }
+      })
+    }
+
+    function onFriendRequestReceived(evt: any) {
+      const fromName = String(evt?.from?.displayName ?? 'Someone')
+      setToast(`${fromName} sent you a friend request.`)
+      setTimeout(() => setToast(null), 2200)
+    }
+
+    function onChallengeResolved(evt: any) {
+      if (evt?.accepted === false) {
+        setToast('Challenge declined.')
+        setTimeout(() => setToast(null), 1800)
+      }
+    }
+
+    function onChallengeMatchReady(evt: any) {
+      const roomCode = String(evt?.roomCode ?? '').toUpperCase()
+      const hostSecretIncoming = typeof evt?.hostSecret === 'string' ? evt.hostSecret : null
+      if (!roomCode) return
+
+      if (hostSecretIncoming) localStorage.setItem('dc_hostSecret', hostSecretIncoming)
+      localStorage.setItem('dc_role', 'PLAYER')
+      setToast('Challenge accepted. Joining lobby...')
+      setTimeout(() => setToast(null), 1600)
+      window.location.href = `/room/${roomCode}/lobby`
+    }
+
+    socket.on('friends:challengeInvite', onChallengeInvite)
+    socket.on('friends:requestReceived', onFriendRequestReceived)
+    socket.on('friends:challengeResolved', onChallengeResolved)
+    socket.on('friends:challengeMatchReady', onChallengeMatchReady)
+
+    return () => {
+      socket.off('friends:challengeInvite', onChallengeInvite)
+      socket.off('friends:requestReceived', onFriendRequestReceived)
+      socket.off('friends:challengeResolved', onChallengeResolved)
+      socket.off('friends:challengeMatchReady', onChallengeMatchReady)
+    }
+  }, [serverUrl])
+
   async function install() {
     try {
       if (!deferredPrompt) {
