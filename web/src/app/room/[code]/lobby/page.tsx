@@ -41,7 +41,7 @@ export default function LobbyPage() {
       setSnap(s)
 
       const status = s?.match?.status
-      if (status && status !== 'LOBBY') {
+      if (status === 'LIVE') {
         router.replace(`/room/${code}/game`)
       }
       setStartingPlayerIndex((idx: number) => {

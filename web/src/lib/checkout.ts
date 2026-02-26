@@ -56,6 +56,19 @@ function finishPrefIndex(d: Dart): number {
   return idx === -1 ? 999 : idx
 }
 
+function preFinishDartPenalty(path: Dart[]): number {
+  if (path.length <= 1) return 0
+  let penalty = 0
+  for (let i = 0; i < path.length - 1; i++) {
+    const d = path[i]
+    if (d.multiplier === 3) penalty += 0
+    else if (d.multiplier === 1) penalty += 2
+    else if (d.multiplier === 2) penalty += 5
+    else penalty += 3
+  }
+  return penalty
+}
+
 export function suggestCheckout(args: {
   remaining: number
   outRule: OutRule
@@ -98,14 +111,20 @@ export function suggestCheckout(args: {
     // 1) fewer darts
     if (a.length !== b.length) return a.length - b.length
 
-    // 2) prefer good doubles
+    // 2) prefer not using doubles before the finishing dart
+    // (e.g. prefer T16 D12 over D16 D20 on 72)
+    const aPenalty = preFinishDartPenalty(a)
+    const bPenalty = preFinishDartPenalty(b)
+    if (aPenalty !== bPenalty) return aPenalty - bPenalty
+
+    // 3) prefer good doubles
     const af = a[a.length - 1]
     const bf = b[b.length - 1]
     const ap = finishPrefIndex(af)
     const bp = finishPrefIndex(bf)
     if (ap !== bp) return ap - bp
 
-    // 3) prefer higher early scoring
+    // 4) prefer higher early scoring
     const av0 = dartPoints(a[0])
     const bv0 = dartPoints(b[0])
     if (av0 !== bv0) return bv0 - av0
@@ -113,7 +132,7 @@ export function suggestCheckout(args: {
     const bv1 = b[1] ? dartPoints(b[1]) : 0
     if (av1 !== bv1) return bv1 - av1
 
-    // 4) stable
+    // 5) stable
     return 0
   })
 

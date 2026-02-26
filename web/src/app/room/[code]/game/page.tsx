@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
 import type { Dart, MatchSnapshot, Player, PlayerStats, RoomSnapshot } from '@/lib/types'
@@ -11,6 +11,7 @@ type VoiceLang = 'EN' | 'NL' | 'DE'
 
 export default function GamePage() {
   const params = useParams<{ code: string }>()
+  const router = useRouter()
   const code = (params.code ?? '').toUpperCase()
   const serverUrl = useMemo(() => getServerUrl(), [])
   const [snap, setSnap] = useState<RoomSnapshot | null>(null)
@@ -50,6 +51,7 @@ export default function GamePage() {
   const suppressVoiceRestartRef = useRef(false)
   const calloutQueueDepthRef = useRef(0)
   const voiceRestartTimerRef = useRef<number | null>(null)
+  const voicePendingSubmitRef = useRef<{ mode: 'TOTAL' | 'PER_DART'; total?: number; darts?: Dart[] } | null>(null)
   const finishedRef = useRef(false)
   const lastCheckoutReminderKeyRef = useRef('')
   const playbackQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -219,6 +221,7 @@ export default function GamePage() {
     })
 
     socket.on('room:turnAccepted', (evt: any) => {
+      voicePendingSubmitRef.current = null
       if (!mounted || !voiceCalloutsEnabled) return
       void enqueueCalloutPlayback(() => playTurnCallout(evt, voiceLang, activeCalloutAudioRef, missingCalloutAudioRef))
     })
@@ -302,6 +305,14 @@ export default function GamePage() {
   const [scoresTab, setScoresTab] = useState<'RECENT' | 'ALL'>('RECENT')
 
   useEffect(() => {
+    if (!finished) return
+    const t = window.setTimeout(() => {
+      router.replace(`/room/${code}/lobby`)
+    }, 600)
+    return () => window.clearTimeout(t)
+  }, [finished, router, code])
+
+  useEffect(() => {
     if (!autodartsPerDartOnly) return
     if (entryMode !== 'PER_DART') setEntryMode('PER_DART')
   }, [autodartsPerDartOnly, entryMode])
@@ -370,6 +381,7 @@ export default function GamePage() {
         throw new Error(res?.message ?? 'Failed')
       }
       setNeedDarts(null)
+      voicePendingSubmitRef.current = null
       if (submittingAutodartsSuggestion) {
         setAutodartsLoadedForReview(null)
       }
@@ -513,12 +525,14 @@ export default function GamePage() {
       const checkIntent = parseVoiceCheckIntent(transcript)
       const parsed = parseVoiceTurn(transcript)
       if (parsed) {
+        const parsedDarts = toEditorDarts(parsed)
         setEntryMode('PER_DART')
-        setDarts(toEditorDarts(parsed))
+        setDarts(parsedDarts)
+        voicePendingSubmitRef.current = { mode: 'PER_DART', darts: parsedDarts }
         setToast(`Voice captured: ${parsed.map((d: Dart) => dartToLabel(d)).join(', ')}`)
         setTimeout(() => setToast(null), 1800)
         if (shouldSubmit) {
-          void submitTurn(false, { mode: 'PER_DART', darts: toEditorDarts(parsed) })
+          void submitTurn(false, { mode: 'PER_DART', darts: parsedDarts })
         }
         return
       }
@@ -528,6 +542,7 @@ export default function GamePage() {
         setEntryMode('TOTAL')
         setTotal(score)
         setTotalText(String(score))
+        voicePendingSubmitRef.current = { mode: 'TOTAL', total: score }
         setToast(`Voice score: ${score}`)
         setTimeout(() => setToast(null), 1800)
         if (shouldSubmit) {
@@ -540,6 +555,7 @@ export default function GamePage() {
         setEntryMode('TOTAL')
         setTotal(0)
         setTotalText('0')
+        voicePendingSubmitRef.current = { mode: 'TOTAL', total: 0 }
         void submitTurn(false, { mode: 'TOTAL', total: 0 })
         setToast('Voice score: MISS (0)')
         setTimeout(() => setToast(null), 1800)
@@ -552,6 +568,7 @@ export default function GamePage() {
           setEntryMode('TOTAL')
           setTotal(remaining)
           setTotalText(String(remaining))
+          voicePendingSubmitRef.current = { mode: 'TOTAL', total: remaining }
           void submitTurn(false, { mode: 'TOTAL', total: remaining })
           setToast(`Voice score: CHECK (${remaining})`)
           setTimeout(() => setToast(null), 1800)
@@ -560,7 +577,15 @@ export default function GamePage() {
       }
 
       if (shouldSubmit) {
-        setToast('Say submit with a score: e.g. "submit 40", "submit miss", or "submit check"')
+        const pending = voicePendingSubmitRef.current
+        if (pending) {
+          void submitTurn(false, pending)
+          setToast('Submitted voice score')
+          setTimeout(() => setToast(null), 1800)
+          return
+        }
+
+        setToast('Say a score first, then "submit". Example: "forty" then "submit"')
         setTimeout(() => setToast(null), 1800)
         return
       }
@@ -1429,6 +1454,11 @@ function normalizeSpokenNumberText(input: string): string {
     .replace(/\bfore\b/g, 'four')
     .replace(/\bwon\b/g, 'one')
     .replace(/\btree\b/g, 'three')
+    .replace(/\bsex\b/g, 'six')
+    .replace(/\bsics\b/g, 'six')
+    .replace(/\bsick\b/g, 'six')
+    .replace(/\bsicks\b/g, 'six')
+    .replace(/\bsis\b/g, 'six')
 }
 
 function parseVoiceSubmitIntent(input: string): boolean {
