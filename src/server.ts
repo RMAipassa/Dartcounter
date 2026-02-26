@@ -56,7 +56,9 @@ function bearerTokenFromReq(req: express.Request): string | null {
 
 function requireAuthedUser(req: express.Request): ReturnType<typeof getUserBySessionToken> {
   const token = bearerTokenFromReq(req)
-  return getUserBySessionToken(token)
+  const user = getUserBySessionToken(token)
+  if (user) lastSeenByUserId.set(user.id, Date.now())
+  return user
 }
 
 const app = express()
@@ -64,16 +66,20 @@ app.use(cors())
 app.use(express.json())
 
 const onlineSocketsByUserId = new Map<string, Set<string>>()
+const lastSeenByUserId = new Map<string, number>()
 
 function isUserOnline(userId: string): boolean {
   const sockets = onlineSocketsByUserId.get(userId)
-  return Boolean(sockets && sockets.size > 0)
+  if (sockets && sockets.size > 0) return true
+  const lastSeen = lastSeenByUserId.get(userId) ?? 0
+  return Date.now() - lastSeen <= 45_000
 }
 
 function addOnlineSocket(userId: string, socketId: string): void {
   const next = onlineSocketsByUserId.get(userId) ?? new Set<string>()
   next.add(socketId)
   onlineSocketsByUserId.set(userId, next)
+  lastSeenByUserId.set(userId, Date.now())
 }
 
 function removeOnlineSocket(userId: string, socketId: string): void {
@@ -641,23 +647,9 @@ const autodartsMockDartSchema = z.object({
   multiplier: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
 })
 
-const socialIdentifySchema = z
-  .object({
-    authToken: z.string().trim().min(1).max(512).optional(),
-    token: z.string().trim().min(1).max(512).optional(),
-  })
-  .refine((v) => Boolean(v.authToken || v.token), { message: 'TOKEN_REQUIRED' })
-
-const challengeFriendSchema = z.object({
-  friendUserId: z.string().trim().min(1).max(128),
-  authToken: z.string().trim().min(1).max(512).optional(),
-})
-
-const challengeRespondSchema = z.object({
-  challengeId: z.string().trim().min(1).max(128),
-  accept: z.boolean(),
-  authToken: z.string().trim().min(1).max(512).optional(),
-})
+const socialIdentifySchema = z.any()
+const challengeFriendSchema = z.any()
+const challengeRespondSchema = z.any()
 
 type PendingAutodartsTurn = {
   playerId: string
@@ -1227,10 +1219,12 @@ io.on('connection', (socket) => {
 
   socket.on('social:identify', (raw, cb) => {
     try {
-      const body = socialIdentifySchema.parse(raw)
-      const auth = resolveAuthIdentity(body.authToken ?? body.token)
+      socialIdentifySchema.parse(raw)
+      const authToken = String((raw as any)?.authToken ?? (raw as any)?.token ?? '').trim()
+      const auth = resolveAuthIdentity(authToken || undefined)
       if (!auth) throw new GameRuleError('AUTH_INVALID', 'Authentication token is invalid or expired')
       setSocketUser(auth.userId)
+      lastSeenByUserId.set(auth.userId, Date.now())
       emitPendingChallengeInvites(auth.userId)
       cb?.({ ok: true, user: { id: auth.userId, displayName: auth.displayName } })
     } catch (err) {
@@ -1241,12 +1235,16 @@ io.on('connection', (socket) => {
 
   socket.on('friends:challenge', (raw, cb) => {
     try {
-      const { friendUserId, authToken } = challengeFriendSchema.parse(raw)
+      challengeFriendSchema.parse(raw)
+      const friendUserId = String((raw as any)?.friendUserId ?? (raw as any)?.targetUserId ?? '').trim()
+      const authToken = String((raw as any)?.authToken ?? (raw as any)?.token ?? '').trim() || undefined
+      if (!friendUserId) throw new GameRuleError('BAD_REQUEST', 'friendUserId is required')
       let fromUserId = (socket.data as any).userId as string | undefined
       if (!fromUserId && authToken) {
         const auth = resolveAuthIdentity(authToken)
         if (auth) {
           setSocketUser(auth.userId)
+          lastSeenByUserId.set(auth.userId, Date.now())
           fromUserId = auth.userId
         }
       }
@@ -1286,12 +1284,17 @@ io.on('connection', (socket) => {
 
   socket.on('friends:challengeRespond', (raw, cb) => {
     try {
-      const { challengeId, accept, authToken } = challengeRespondSchema.parse(raw)
+      challengeRespondSchema.parse(raw)
+      const challengeId = String((raw as any)?.challengeId ?? '').trim()
+      const accept = Boolean((raw as any)?.accept)
+      const authToken = String((raw as any)?.authToken ?? (raw as any)?.token ?? '').trim() || undefined
+      if (!challengeId) throw new GameRuleError('BAD_REQUEST', 'challengeId is required')
       let toUserId = (socket.data as any).userId as string | undefined
       if (!toUserId && authToken) {
         const auth = resolveAuthIdentity(authToken)
         if (auth) {
           setSocketUser(auth.userId)
+          lastSeenByUserId.set(auth.userId, Date.now())
           toUserId = auth.userId
         }
       }
