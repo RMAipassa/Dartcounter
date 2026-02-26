@@ -157,6 +157,22 @@ export default function AccountPage() {
     void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
   }, [me, serverUrl])
 
+  useEffect(() => {
+    if (!me) return
+    const refresh = () => {
+      void refreshFriends(serverUrl, setFriends)
+    }
+    const t = window.setInterval(refresh, 12000)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(t)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [me, serverUrl])
+
   async function submit() {
     setError(null)
     setBusy(true)
@@ -309,6 +325,7 @@ export default function AccountPage() {
       if (!identifyRes?.ok) throw new Error(identifyRes?.message ?? 'Not authenticated on socket')
       const res = await socket.emitWithAck('friends:challenge', { friendUserId })
       if (!res?.ok) throw new Error(res?.message ?? 'Could not send challenge')
+      setError(null)
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -540,8 +557,8 @@ export default function AccountPage() {
                 <span className="pill">{f.user.displayName}</span>
                 <span className="pill">{f.user.email}</span>
                 <span className="pill" style={{ color: f.online ? 'var(--good)' : 'var(--muted)' }}>{f.online ? 'online' : 'offline'}</span>
-                <button className="btn" disabled={busy || !f.online} onClick={() => void challengeFriend(f.user.userId)}>
-                  Challenge
+                <button className="btn" disabled={busy} onClick={() => void challengeFriend(f.user.userId)}>
+                  {f.online ? 'Challenge' : 'Challenge (offline)'}
                 </button>
                 <button className="btn" disabled={busy} onClick={() => void removeFriendship(f.user.userId)}>
                   Remove
