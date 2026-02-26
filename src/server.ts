@@ -6,6 +6,7 @@ import path from 'path'
 import { randomBytes } from 'crypto'
 import { Server, type Socket } from 'socket.io'
 import { z } from 'zod'
+import { ZodError } from 'zod'
 import {
   areFriends,
   authenticateUser,
@@ -1157,7 +1158,7 @@ io.on('connection', (socket) => {
     const prev = (socket.data as any).userId as string | undefined
     if (prev && prev !== userId) removeOnlineSocket(prev, socket.id)
     if (userId) {
-      setSocketUser(userId)
+      ;(socket.data as any).userId = userId
       addOnlineSocket(userId, socket.id)
     } else {
       delete (socket.data as any).userId
@@ -1377,6 +1378,19 @@ io.on('connection', (socket) => {
       cb?.({ ok: true, code: room.code, hostSecret: room.hostSecret, role: 'PLAYER', playerId: hostPlayer?.id })
       emitSnapshot(room.code)
     } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('room:create failed', {
+        error: err instanceof Error ? err.message : String(err),
+        raw: {
+          ...(typeof raw === 'object' && raw ? (raw as Record<string, unknown>) : {}),
+          authToken: typeof (raw as any)?.authToken === 'string' ? '[present]' : undefined,
+        },
+      })
+      if (err instanceof ZodError) {
+        const issues = err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }))
+        cb?.({ ok: false, code: 'BAD_REQUEST', message: 'Invalid room create payload', details: issues })
+        return
+      }
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
       cb?.({ ok: false, code: e.code, message: e.message, details: (e as any).details })
     }
@@ -1519,6 +1533,19 @@ io.on('connection', (socket) => {
       }
       emitSnapshot(code)
     } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('room:join failed', {
+        error: err instanceof Error ? err.message : String(err),
+        raw: {
+          ...(typeof raw === 'object' && raw ? (raw as Record<string, unknown>) : {}),
+          authToken: typeof (raw as any)?.authToken === 'string' ? '[present]' : undefined,
+        },
+      })
+      if (err instanceof ZodError) {
+        const issues = err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }))
+        cb?.({ ok: false, code: 'BAD_REQUEST', message: 'Invalid room join payload', details: issues })
+        return
+      }
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
       cb?.({ ok: false, code: e.code, message: e.message, details: (e as any).details })
     }

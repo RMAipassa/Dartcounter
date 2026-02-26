@@ -64,8 +64,32 @@ export default function HomePage() {
       const socket = getSocket(serverUrl)
       const rawToken = localStorage.getItem('dc_authToken')
       const authToken = rawToken && rawToken.trim() ? rawToken.trim() : undefined
-      const res = await socket.emitWithAck('room:create', { name: effectiveName, authToken, settings, title, isPublic })
-      if (!res?.ok) throw new Error(res?.message ?? 'Failed to create room')
+      const normalizedSettings = normalizeSettingsForCreate(settings)
+      const res = await socket.emitWithAck('room:create', {
+        name: effectiveName,
+        authToken,
+        settings: normalizedSettings,
+        title,
+        isPublic,
+      })
+      if (!res?.ok) {
+        // Helpful for debugging socket-ack failures in browser devtools.
+        console.error('[room:create] failed', {
+          request: {
+            name: effectiveName,
+            hasAuthToken: Boolean(authToken),
+            settings: normalizedSettings,
+            title,
+            isPublic,
+          },
+          response: res,
+        })
+        const extra = Array.isArray(res?.details)
+          ? ` (${res.details.map((d: any) => `${d.path || 'field'}: ${d.message || 'invalid'}`).join(', ')})`
+          : ''
+        const code = typeof res?.code === 'string' ? ` [${res.code}]` : ''
+        throw new Error(`${res?.message ?? 'Failed to create room'}${code}${extra}`)
+      }
       localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_hostSecret', res.hostSecret)
       localStorage.setItem('dc_role', res.role ?? 'PLAYER')
@@ -87,7 +111,17 @@ export default function HomePage() {
       const rawToken = localStorage.getItem('dc_authToken')
       const authToken = rawToken && rawToken.trim() ? rawToken.trim() : undefined
       const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator: false })
-      if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
+      if (!res?.ok) {
+        console.error('[room:join] failed', {
+          request: { code, name: effectiveName, hasAuthToken: Boolean(authToken), asSpectator: false },
+          response: res,
+        })
+        const extra = Array.isArray(res?.details)
+          ? ` (${res.details.map((d: any) => `${d.path || 'field'}: ${d.message || 'invalid'}`).join(', ')})`
+          : ''
+        const codeInfo = typeof res?.code === 'string' ? ` [${res.code}]` : ''
+        throw new Error(`${res?.message ?? 'Failed to join room'}${codeInfo}${extra}`)
+      }
       localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_role', res.role ?? 'PLAYER')
       router.push(`/room/${code}/lobby`)
@@ -107,7 +141,17 @@ export default function HomePage() {
       const rawToken = localStorage.getItem('dc_authToken')
       const authToken = rawToken && rawToken.trim() ? rawToken.trim() : undefined
       const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator: true })
-      if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
+      if (!res?.ok) {
+        console.error('[room:join spectator] failed', {
+          request: { code, name: effectiveName, hasAuthToken: Boolean(authToken), asSpectator: true },
+          response: res,
+        })
+        const extra = Array.isArray(res?.details)
+          ? ` (${res.details.map((d: any) => `${d.path || 'field'}: ${d.message || 'invalid'}`).join(', ')})`
+          : ''
+        const codeInfo = typeof res?.code === 'string' ? ` [${res.code}]` : ''
+        throw new Error(`${res?.message ?? 'Failed to join room'}${codeInfo}${extra}`)
+      }
       localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_role', res.role ?? 'SPECTATOR')
       router.push(`/room/${code}/lobby`)
@@ -333,4 +377,38 @@ export default function HomePage() {
       {err ? <div className="toast">{err}</div> : null}
     </div>
   )
+}
+
+function normalizeSettingsForCreate(settings: X01Settings): X01Settings {
+  const startScore = clampInt(settings.startScore, 2, 10001, 501)
+  const legsToWin = clampInt(settings.legsToWin, 1, 99, 3)
+  const setsEnabled = Boolean(settings.setsEnabled)
+  const setsToWin = setsEnabled ? clampInt(settings.setsToWin, 1, 99, 1) : 0
+
+  const doubleIn = Boolean(settings.doubleIn)
+  let doubleOut = Boolean(settings.doubleOut)
+  let masterOut = Boolean(settings.masterOut)
+  if (doubleOut && masterOut) {
+    masterOut = false
+  }
+
+  return {
+    gameType: 'X01',
+    startScore,
+    legsToWin,
+    setsEnabled,
+    setsToWin,
+    doubleIn,
+    doubleOut,
+    masterOut,
+  }
+}
+
+function clampInt(value: number, min: number, max: number, fallback: number): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  const i = Math.trunc(n)
+  if (i < min) return min
+  if (i > max) return max
+  return i
 }
