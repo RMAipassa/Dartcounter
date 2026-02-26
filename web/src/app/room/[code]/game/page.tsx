@@ -45,6 +45,7 @@ export default function GamePage() {
   const missingBoardNoticeKeyRef = useRef('')
   const speechRef = useRef<any>(null)
   const voiceAlwaysOnRef = useRef(false)
+  const voiceListeningRef = useRef(false)
   const voiceManualStopRef = useRef(false)
   const suppressVoiceRestartRef = useRef(false)
   const calloutQueueDepthRef = useRef(0)
@@ -68,6 +69,8 @@ export default function GamePage() {
           } catch {
             // ignore
           }
+          setVoiceListening(false)
+          speechRef.current = null
           await sleep(160)
         }
 
@@ -251,6 +254,7 @@ export default function GamePage() {
   const finished = match?.status === 'FINISHED'
   finishedRef.current = Boolean(finished)
   voiceAlwaysOnRef.current = voiceAlwaysOn
+  voiceListeningRef.current = voiceListening
   const statsByPlayerId = match?.statsByPlayerId ?? {}
   const autodarts = snap?.room?.autodarts
   const autodartsActiveUserId = snap?.room?.autodartsActiveUserId ?? null
@@ -410,6 +414,9 @@ export default function GamePage() {
 
     voiceRestartTimerRef.current = window.setTimeout(() => {
       voiceRestartTimerRef.current = null
+      if (speechRef.current && !voiceListeningRef.current) {
+        speechRef.current = null
+      }
       if (!voiceAlwaysOnRef.current || voiceManualStopRef.current || finishedRef.current) return
       if (calloutQueueDepthRef.current > 0 || speechRef.current) return
       const started = startVoiceInput()
