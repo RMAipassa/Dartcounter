@@ -67,7 +67,7 @@ export default function GamePage() {
           await waitForVoiceIdle(900)
           if (speechRef.current) {
             try {
-              speechRef.current?.stop?.()
+              speechRef.current?.abort?.()
             } catch {
               // ignore
             }
@@ -384,7 +384,7 @@ export default function GamePage() {
     if (finished) {
       if (voiceListening) {
         voiceManualStopRef.current = true
-        speechRef.current?.stop?.()
+        speechRef.current?.abort?.()
       }
       return
     }
@@ -398,6 +398,17 @@ export default function GamePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voiceAlwaysOn, voiceSupported, finished])
+
+  useEffect(() => {
+    if (!voiceSupported || !voiceAlwaysOn || finished) return
+    const timer = window.setInterval(() => {
+      if (voiceManualStopRef.current) return
+      if (calloutQueueDepthRef.current > 0) return
+      if (speechRef.current || voiceListeningRef.current) return
+      scheduleVoiceRestart(0)
+    }, 1400)
+    return () => window.clearInterval(timer)
+  }, [voiceSupported, voiceAlwaysOn, finished])
 
   useEffect(() => {
     return () => {
@@ -418,6 +429,11 @@ export default function GamePage() {
     voiceRestartTimerRef.current = window.setTimeout(() => {
       voiceRestartTimerRef.current = null
       if (speechRef.current && !voiceListeningRef.current) {
+        try {
+          speechRef.current?.abort?.()
+        } catch {
+          // ignore
+        }
         speechRef.current = null
       }
       if (!voiceAlwaysOnRef.current || voiceManualStopRef.current || finishedRef.current) return
@@ -444,7 +460,7 @@ export default function GamePage() {
     if (voiceListening) {
       setVoiceAlwaysOn(false)
       voiceManualStopRef.current = true
-      speechRef.current?.stop?.()
+      speechRef.current?.abort?.()
       setVoiceListening(false)
       return
     }
