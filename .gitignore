@@ -1,6 +1,7 @@
 # Node
 node_modules/
 package-lock.json
+web/package-lock.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
