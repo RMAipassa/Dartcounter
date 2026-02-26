@@ -395,12 +395,18 @@ a {
 }
 
 .entryMic {
-  width: 72px;
+  width: 64px;
   border-radius: 18px;
   border: 1px solid rgba(255,255,255,0.14);
   background: rgba(0,0,0,0.18);
   color: var(--text);
   font-weight: 700;
+}
+
+.entryMicActive {
+  border-color: rgba(51, 209, 122, 0.45);
+  background: rgba(51, 209, 122, 0.22);
+  color: rgba(255,255,255,0.96);
 }
 
 .entryMic:disabled {

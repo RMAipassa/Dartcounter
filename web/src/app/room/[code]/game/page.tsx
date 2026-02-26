@@ -37,13 +37,26 @@ export default function GamePage() {
   const [voiceLastTranscript, setVoiceLastTranscript] = useState<string>('')
   const [voiceHelpOpen, setVoiceHelpOpen] = useState(false)
   const [voiceCalloutsEnabled, setVoiceCalloutsEnabled] = useState(true)
+  const [voiceAlwaysOn, setVoiceAlwaysOn] = useState(false)
   const voiceLang: VoiceLang = 'EN'
   const [hostSecret, setHostSecret] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const missingBoardNoticeKeyRef = useRef('')
   const speechRef = useRef<any>(null)
+  const voiceAlwaysOnRef = useRef(false)
+  const voiceManualStopRef = useRef(false)
+  const finishedRef = useRef(false)
+  const lastCheckoutReminderKeyRef = useRef('')
+  const playbackQueueRef = useRef<Promise<void>>(Promise.resolve())
   const activeCalloutAudioRef = useRef<HTMLAudioElement | null>(null)
   const missingCalloutAudioRef = useRef<Set<string>>(new Set())
+
+  const enqueueCalloutPlayback = useCallback((job: () => Promise<void> | void) => {
+    playbackQueueRef.current = playbackQueueRef.current
+      .then(() => Promise.resolve(job()))
+      .catch(() => undefined)
+    return playbackQueueRef.current
+  }, [])
 
   useEffect(() => {
     const next = String(total)
@@ -57,6 +70,8 @@ export default function GamePage() {
     setHostSecret(localStorage.getItem('dc_hostSecret'))
     const savedCallouts = localStorage.getItem('dc_voiceCallouts')
     if (savedCallouts === 'off') setVoiceCalloutsEnabled(false)
+    const savedAlwaysOn = localStorage.getItem('dc_voiceAlwaysOn')
+    if (savedAlwaysOn === 'on') setVoiceAlwaysOn(true)
     const ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     setVoiceSupported(Boolean(ctor))
   }, [])
@@ -65,6 +80,11 @@ export default function GamePage() {
     if (typeof window === 'undefined') return
     localStorage.setItem('dc_voiceCallouts', voiceCalloutsEnabled ? 'on' : 'off')
   }, [voiceCalloutsEnabled])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem('dc_voiceAlwaysOn', voiceAlwaysOn ? 'on' : 'off')
+  }, [voiceAlwaysOn])
 
   useEffect(() => {
     if (!hydrated) return
@@ -164,7 +184,7 @@ export default function GamePage() {
 
     socket.on('room:turnAccepted', (evt: any) => {
       if (!mounted || !voiceCalloutsEnabled) return
-      void playTurnCallout(evt, voiceLang, activeCalloutAudioRef, missingCalloutAudioRef)
+      void enqueueCalloutPlayback(() => playTurnCallout(evt, voiceLang, activeCalloutAudioRef, missingCalloutAudioRef))
     })
 
     const name = localStorage.getItem('dc_authDisplayName') || localStorage.getItem('dc_name') || 'Guest'
@@ -190,7 +210,7 @@ export default function GamePage() {
       socket.off('room:autodartsTurnCleared')
       socket.off('room:turnAccepted')
     }
-  }, [code, hostSecret, serverUrl, hydrated, voiceCalloutsEnabled])
+  }, [code, hostSecret, serverUrl, hydrated, voiceCalloutsEnabled, enqueueCalloutPlayback])
 
   const match = snap?.match
   const leg = match?.leg
@@ -199,6 +219,8 @@ export default function GamePage() {
   const currentIdx = leg?.currentPlayerIndex ?? -1
   const currentPlayer = currentIdx >= 0 ? players[currentIdx] : null
   const finished = match?.status === 'FINISHED'
+  finishedRef.current = Boolean(finished)
+  voiceAlwaysOnRef.current = voiceAlwaysOn
   const statsByPlayerId = match?.statsByPlayerId ?? {}
   const autodarts = snap?.room?.autodarts
   const autodartsActiveUserId = snap?.room?.autodartsActiveUserId ?? null
@@ -247,6 +269,34 @@ export default function GamePage() {
     if (entryMode !== 'PER_DART') setEntryMode('PER_DART')
   }, [autodartsPerDartOnly, entryMode])
 
+  useEffect(() => {
+    if (!voiceCalloutsEnabled || !match || !currentPlayer || !currentLegPlayer) return
+    if (match.status !== 'LIVE') return
+    if (!currentLegPlayer.isIn) return
+    const remaining = currentLegPlayer.remaining
+    if (!Number.isInteger(remaining) || remaining <= 1 || remaining > checkoutMax) return
+
+    const reminderKey = `${code}:${match.currentLegIndex}:${currentPlayer.id}:${remaining}:${outRule}`
+    if (lastCheckoutReminderKeyRef.current === reminderKey) return
+    lastCheckoutReminderKeyRef.current = reminderKey
+
+    window.setTimeout(() => {
+      void enqueueCalloutPlayback(() =>
+        playCheckoutReminderCallout(remaining, voiceLang, activeCalloutAudioRef, missingCalloutAudioRef),
+      )
+    }, 380)
+  }, [
+    voiceCalloutsEnabled,
+    match,
+    code,
+    currentPlayer,
+    currentLegPlayer,
+    checkoutMax,
+    outRule,
+    voiceLang,
+    enqueueCalloutPlayback,
+  ])
+
   async function clearAutodartsPending() {
     try {
       const socket = getSocket(serverUrl)
@@ -258,18 +308,22 @@ export default function GamePage() {
     }
   }
 
-  async function submitTurn(withDarts?: boolean) {
+  async function submitTurn(
+    withDarts?: boolean,
+    override?: { mode?: 'TOTAL' | 'PER_DART'; total?: number; darts?: Dart[] },
+  ) {
     try {
       setToast(null)
       const submittingAutodartsSuggestion = autodartsTurnReady
       const socket = getSocket(serverUrl)
       const payload: any = {}
 
-      if (entryMode === 'PER_DART') {
-        payload.darts = darts
+      const mode = override?.mode ?? entryMode
+      if (mode === 'PER_DART') {
+        payload.darts = override?.darts ?? darts
       } else {
-        payload.total = total
-        if (withDarts) payload.darts = darts
+        payload.total = typeof override?.total === 'number' ? override.total : total
+        if (withDarts) payload.darts = override?.darts ?? darts
       }
 
       const res = await socket.emitWithAck('game:submitTurn', payload)
@@ -288,6 +342,25 @@ export default function GamePage() {
     }
   }
 
+  useEffect(() => {
+    if (!voiceSupported) return
+    if (finished) {
+      if (voiceListening) {
+        voiceManualStopRef.current = true
+        speechRef.current?.stop?.()
+      }
+      return
+    }
+    if (voiceAlwaysOn && !voiceListening) {
+      voiceManualStopRef.current = false
+      startVoiceInput()
+    }
+    if (!voiceAlwaysOn && voiceListening && voiceManualStopRef.current) {
+      speechRef.current?.stop?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceAlwaysOn, voiceSupported, finished])
+
   function toggleVoiceInput() {
     if (!voiceSupported || typeof window === 'undefined') {
       setToast('Voice input not supported in this browser')
@@ -296,10 +369,19 @@ export default function GamePage() {
     }
 
     if (voiceListening) {
+      setVoiceAlwaysOn(false)
+      voiceManualStopRef.current = true
       speechRef.current?.stop?.()
       setVoiceListening(false)
       return
     }
+
+    voiceManualStopRef.current = false
+    startVoiceInput()
+  }
+
+  function startVoiceInput() {
+    if (!voiceSupported || typeof window === 'undefined' || finishedRef.current) return
 
     const ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     const rec = new ctor()
@@ -316,10 +398,15 @@ export default function GamePage() {
 
     rec.onend = () => {
       setVoiceListening(false)
+      speechRef.current = null
+      if (voiceAlwaysOnRef.current && !voiceManualStopRef.current && !finishedRef.current) {
+        window.setTimeout(() => startVoiceInput(), 220)
+      }
     }
 
     rec.onerror = () => {
       setVoiceListening(false)
+      speechRef.current = null
       setToast('Voice capture failed')
       setTimeout(() => setToast(null), 1800)
     }
@@ -327,12 +414,16 @@ export default function GamePage() {
     rec.onresult = (evt: any) => {
       const transcript = String(evt?.results?.[0]?.[0]?.transcript ?? '').trim()
       setVoiceLastTranscript(transcript)
+      const shouldSubmit = parseVoiceSubmitIntent(transcript)
       const parsed = parseVoiceTurn(transcript)
       if (parsed) {
         setEntryMode('PER_DART')
         setDarts(toEditorDarts(parsed))
         setToast(`Voice captured: ${parsed.map((d: Dart) => dartToLabel(d)).join(', ')}`)
         setTimeout(() => setToast(null), 1800)
+        if (shouldSubmit) {
+          void submitTurn(false, { mode: 'PER_DART', darts: toEditorDarts(parsed) })
+        }
         return
       }
 
@@ -342,6 +433,16 @@ export default function GamePage() {
         setTotal(score)
         setTotalText(String(score))
         setToast(`Voice score: ${score}`)
+        setTimeout(() => setToast(null), 1800)
+        if (shouldSubmit) {
+          void submitTurn(false, { mode: 'TOTAL', total: score })
+        }
+        return
+      }
+
+      if (shouldSubmit) {
+        void submitTurn(false)
+        setToast('Submitted current turn')
         setTimeout(() => setToast(null), 1800)
         return
       }
@@ -388,6 +489,9 @@ export default function GamePage() {
             <button className="btn" onClick={() => setVoiceCalloutsEnabled((v) => !v)}>
               Callouts: {voiceCalloutsEnabled ? 'on' : 'off'}
             </button>
+            <button className="btn" onClick={() => setVoiceAlwaysOn((v) => !v)} disabled={!voiceSupported || finished}>
+              Voice always-on: {voiceAlwaysOn ? 'on' : 'off'}
+            </button>
             {voiceLastTranscript ? <span className="pill">Heard: {voiceLastTranscript}</span> : null}
           </div>
 
@@ -433,6 +537,7 @@ export default function GamePage() {
               <span className="pill">NL: enkel/dubbel/trippel</span>
               <span className="pill">DE: einfach/doppel/dreifach/fehlwurf</span>
               <span className="pill">Totals: say 1..180 ("100", "one hundred eighty")</span>
+              <span className="pill">Submit: say "submit" or "submit 100"</span>
             </div>
           </div>
         ) : null}
@@ -463,6 +568,8 @@ export default function GamePage() {
           darts={darts}
           setDarts={setDarts}
           onVoiceInput={toggleVoiceInput}
+          voiceAlwaysOn={voiceAlwaysOn}
+          setVoiceAlwaysOn={setVoiceAlwaysOn}
           voiceSupported={voiceSupported}
           voiceListening={voiceListening}
           finished={finished}
@@ -614,6 +721,8 @@ function MobileGame({
   darts,
   setDarts,
   onVoiceInput,
+  voiceAlwaysOn,
+  setVoiceAlwaysOn,
   voiceSupported,
   voiceListening,
   finished,
@@ -640,6 +749,8 @@ function MobileGame({
   darts: Dart[]
   setDarts: (d: Dart[]) => void
   onVoiceInput: () => void
+  voiceAlwaysOn: boolean
+  setVoiceAlwaysOn: (v: boolean | ((prev: boolean) => boolean)) => void
   voiceSupported: boolean
   voiceListening: boolean
   finished: boolean
@@ -753,6 +864,8 @@ function MobileGame({
         darts={darts}
         setDarts={setDarts}
         onVoiceInput={onVoiceInput}
+        voiceAlwaysOn={voiceAlwaysOn}
+        setVoiceAlwaysOn={setVoiceAlwaysOn}
         voiceSupported={voiceSupported}
         voiceListening={voiceListening}
         canSubmit={canSubmit && !finished}
@@ -793,6 +906,8 @@ function MobileTurnEntry({
   darts,
   setDarts,
   onVoiceInput,
+  voiceAlwaysOn,
+  setVoiceAlwaysOn,
   voiceSupported,
   voiceListening,
   canSubmit,
@@ -809,6 +924,8 @@ function MobileTurnEntry({
   darts: Dart[]
   setDarts: (d: Dart[]) => void
   onVoiceInput: () => void
+  voiceAlwaysOn: boolean
+  setVoiceAlwaysOn: (v: boolean | ((prev: boolean) => boolean)) => void
   voiceSupported: boolean
   voiceListening: boolean
   canSubmit: boolean
@@ -946,6 +1063,15 @@ function MobileTurnEntry({
           title={voiceSupported ? undefined : 'Voice input not supported in this browser'}
         >
           {voiceListening ? 'Stop' : 'Mic'}
+        </button>
+        <button
+          className={voiceAlwaysOn ? 'entryMic entryMicActive' : 'entryMic'}
+          onClick={() => setVoiceAlwaysOn((v) => !v)}
+          aria-label={voiceAlwaysOn ? 'Disable always-on voice input' : 'Enable always-on voice input'}
+          disabled={!voiceSupported}
+          title={voiceSupported ? undefined : 'Voice input not supported in this browser'}
+        >
+          {voiceAlwaysOn ? 'Auto on' : 'Auto'}
         </button>
         <div className="entryDisplay">
           <span className="entryHint">{entryMode === 'TOTAL' ? 'Enter a score' : labels.join('  ')}</span>
@@ -1160,6 +1286,18 @@ function parseVoiceScore180(input: string): number | null {
   return null
 }
 
+function parseVoiceSubmitIntent(input: string): boolean {
+  const txt = input
+    .toLowerCase()
+    .replaceAll(',', ' ')
+    .replaceAll('-', ' ')
+    .replaceAll('.', ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!txt) return false
+  return /\b(submit|send|enter|confirm|done|next|ok|okay|go)\b/.test(txt)
+}
+
 function parseEnglishNumber(input: string): number | null {
   const units: Record<string, number> = {
     zero: 0,
@@ -1243,6 +1381,19 @@ async function playTurnCallout(
   speakCallout(text, lang)
 }
 
+async function playCheckoutReminderCallout(
+  remaining: number,
+  lang: VoiceLang,
+  activeAudioRef: { current: HTMLAudioElement | null },
+  missingAudioRef: { current: Set<string> },
+): Promise<void> {
+  if (!Number.isInteger(remaining) || remaining <= 1) return
+  const played = await playCalloutAudioSequence(['you_require', `${remaining}`], lang, activeAudioRef, missingAudioRef)
+  if (played) return
+  const text = buildCheckoutReminder(remaining, lang)
+  if (text) speakCallout(text, lang)
+}
+
 function buildTurnCalloutAudioKey(evt: any): string | null {
   if (!evt || typeof evt !== 'object') return null
   const score = Number(evt.score)
@@ -1250,8 +1401,18 @@ function buildTurnCalloutAudioKey(evt: any): string | null {
   const didCheckout = Boolean(evt.didCheckout)
   const matchFinished = Boolean(evt.matchFinished)
   const finishedLegNumber = Number(evt.finishedLegNumber)
+  const finishedSetNumber = Number(evt.finishedSetNumber)
 
   if (didCheckout && matchFinished) return 'game-shot-match'
+  if (
+    didCheckout &&
+    Number.isInteger(finishedSetNumber) &&
+    finishedSetNumber > 0 &&
+    Number.isInteger(finishedLegNumber) &&
+    finishedLegNumber > 0
+  ) {
+    return `game-shot-set-leg-${finishedSetNumber}-${finishedLegNumber}`
+  }
   if (didCheckout && Number.isInteger(finishedLegNumber) && finishedLegNumber > 0 && finishedLegNumber <= 20) {
     return `game-shot-leg-${finishedLegNumber}`
   }
@@ -1268,6 +1429,52 @@ async function tryPlayCalloutAudio(
   missingAudioRef: { current: Set<string> },
 ): Promise<boolean> {
   if (typeof window === 'undefined') return false
+  if (activeAudioRef.current) {
+    activeAudioRef.current.pause()
+    activeAudioRef.current.currentTime = 0
+  }
+  const audio = await resolveCalloutAudio(key, lang, missingAudioRef)
+  if (!audio) return false
+  try {
+    activeAudioRef.current = audio
+    await audio.play()
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function playCalloutAudioSequence(
+  keys: string[],
+  lang: VoiceLang,
+  activeAudioRef: { current: HTMLAudioElement | null },
+  missingAudioRef: { current: Set<string> },
+): Promise<boolean> {
+  if (typeof window === 'undefined' || keys.length === 0) return false
+  if (activeAudioRef.current) {
+    activeAudioRef.current.pause()
+    activeAudioRef.current.currentTime = 0
+  }
+
+  for (const key of keys) {
+    const audio = await resolveCalloutAudio(key, lang, missingAudioRef)
+    if (!audio) return false
+    try {
+      activeAudioRef.current = audio
+      await audio.play()
+      await waitForAudioEnd(audio)
+    } catch {
+      return false
+    }
+  }
+  return true
+}
+
+async function resolveCalloutAudio(
+  key: string,
+  lang: VoiceLang,
+  missingAudioRef: { current: Set<string> },
+): Promise<HTMLAudioElement | null> {
   const langFolder = lang.toLowerCase()
   const keys = expandAudioKeyCandidates(key)
 
@@ -1285,24 +1492,32 @@ async function tryPlayCalloutAudio(
       continue
     }
 
-    try {
-      if (activeAudioRef.current) {
-        activeAudioRef.current.pause()
-        activeAudioRef.current.currentTime = 0
-      }
-      activeAudioRef.current = audio
-      await audio.play()
-      return true
-    } catch {
-      return false
-    }
+    return audio
   }
 
-  return false
+  return null
 }
 
 function expandAudioKeyCandidates(key: string): string[] {
   const keys = new Set<string>([key])
+  if (key === 'bust') keys.add('busted')
+  if (key === 'game-shot-match') keys.add('matchshot')
+  if (key === 'game-shot') keys.add('gameshot')
+  const setLegKey = key.match(/^game-shot-set-leg-(\d{1,2})-(\d{1,2})$/)
+  if (setLegKey) {
+    const setNo = Number(setLegKey[1])
+    const legNo = Number(setLegKey[2])
+    keys.add(`s${setNo}_l${legNo}_n`)
+    keys.add(`gameshot_l${legNo}_n`)
+    keys.add(`set_${setNo}`)
+    keys.add(`leg_${legNo}`)
+  }
+  const legKey = key.match(/^game-shot-leg-(\d{1,2})$/)
+  if (legKey) {
+    const legNo = Number(legKey[1])
+    keys.add(`gameshot_l${legNo}_n`)
+    keys.add(`leg_${legNo}`)
+  }
   if (key.startsWith('score-')) {
     const score = key.slice('score-'.length)
     if (/^\d+$/.test(score)) keys.add(score)
@@ -1330,6 +1545,27 @@ function waitForAudioLoad(audio: HTMLAudioElement): Promise<boolean> {
     audio.oncanplay = () => finish(true)
     audio.onerror = () => finish(false)
     audio.load()
+  })
+}
+
+function waitForAudioEnd(audio: HTMLAudioElement): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let done = false
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      cleanup()
+      if (ok) resolve()
+      else reject(new Error('AUDIO_END_FAILED'))
+    }
+    const cleanup = () => {
+      audio.onended = null
+      audio.onerror = null
+      clearTimeout(timeout)
+    }
+    const timeout = setTimeout(() => finish(false), 8000)
+    audio.onended = () => finish(true)
+    audio.onerror = () => finish(false)
   })
 }
 
@@ -1364,6 +1600,13 @@ function buildTurnCallout(evt: any, lang: VoiceLang): string | null {
   }
   if (Number.isInteger(score) && score >= 0 && score <= 180) return `${score}.`
   return null
+}
+
+function buildCheckoutReminder(remaining: number, lang: VoiceLang): string | null {
+  if (!Number.isInteger(remaining) || remaining <= 1) return null
+  if (lang === 'NL') return `Je hebt ${remaining} nodig.`
+  if (lang === 'DE') return `Du brauchst ${remaining}.`
+  return `You require ${remaining}.`
 }
 
 function speakCallout(text: string, lang: VoiceLang): void {
