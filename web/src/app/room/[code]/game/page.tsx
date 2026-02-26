@@ -48,6 +48,7 @@ export default function GamePage() {
   const voiceManualStopRef = useRef(false)
   const suppressVoiceRestartRef = useRef(false)
   const calloutQueueDepthRef = useRef(0)
+  const voiceRestartTimerRef = useRef<number | null>(null)
   const finishedRef = useRef(false)
   const lastCheckoutReminderKeyRef = useRef('')
   const playbackQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -79,9 +80,7 @@ export default function GamePage() {
             setVoicePausedForCallout(false)
           }
           if (calloutQueueDepthRef.current === 0) {
-            if (voiceAlwaysOnRef.current && !voiceManualStopRef.current && !finishedRef.current && !speechRef.current) {
-              window.setTimeout(() => startVoiceInput(), 180)
-            }
+            scheduleVoiceRestart(180)
           }
         }
       })
@@ -385,13 +384,38 @@ export default function GamePage() {
     if (voiceAlwaysOn && !voiceListening) {
       if (calloutQueueDepthRef.current > 0) return
       voiceManualStopRef.current = false
-      startVoiceInput()
+      scheduleVoiceRestart(0)
     }
     if (!voiceAlwaysOn && voiceListening && voiceManualStopRef.current) {
       speechRef.current?.stop?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voiceAlwaysOn, voiceSupported, finished])
+
+  useEffect(() => {
+    return () => {
+      if (voiceRestartTimerRef.current != null) {
+        window.clearTimeout(voiceRestartTimerRef.current)
+        voiceRestartTimerRef.current = null
+      }
+    }
+  }, [])
+
+  function scheduleVoiceRestart(delayMs: number) {
+    if (typeof window === 'undefined') return
+    if (voiceRestartTimerRef.current != null) {
+      window.clearTimeout(voiceRestartTimerRef.current)
+      voiceRestartTimerRef.current = null
+    }
+
+    voiceRestartTimerRef.current = window.setTimeout(() => {
+      voiceRestartTimerRef.current = null
+      if (!voiceAlwaysOnRef.current || voiceManualStopRef.current || finishedRef.current) return
+      if (calloutQueueDepthRef.current > 0 || speechRef.current) return
+      const started = startVoiceInput()
+      if (!started) scheduleVoiceRestart(450)
+    }, Math.max(0, delayMs))
+  }
 
   function toggleVoiceInput() {
     if (!voiceSupported || typeof window === 'undefined') {
@@ -412,8 +436,9 @@ export default function GamePage() {
     startVoiceInput()
   }
 
-  function startVoiceInput() {
-    if (!voiceSupported || typeof window === 'undefined' || finishedRef.current || calloutQueueDepthRef.current > 0) return
+  function startVoiceInput(): boolean {
+    if (!voiceSupported || typeof window === 'undefined' || finishedRef.current || calloutQueueDepthRef.current > 0) return false
+    if (speechRef.current) return false
 
     const ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     const rec = new ctor()
@@ -433,7 +458,7 @@ export default function GamePage() {
         return
       }
       if (voiceAlwaysOnRef.current && !voiceManualStopRef.current && !finishedRef.current && calloutQueueDepthRef.current === 0) {
-        window.setTimeout(() => startVoiceInput(), 220)
+        scheduleVoiceRestart(220)
       }
     }
 
@@ -487,7 +512,14 @@ export default function GamePage() {
       setTimeout(() => setToast(null), 1800)
     }
 
-    rec.start()
+    try {
+      rec.start()
+      return true
+    } catch {
+      speechRef.current = null
+      setVoiceListening(false)
+      return false
+    }
   }
 
   return (
