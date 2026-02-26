@@ -1416,7 +1416,7 @@ async function playTurnCallout(
     if (played) return
   }
 
-  speakCallout(text, lang)
+  await speakCallout(text, lang)
 }
 
 async function playCheckoutReminderCallout(
@@ -1429,7 +1429,7 @@ async function playCheckoutReminderCallout(
   const played = await playCalloutAudioSequence(['you_require', `${remaining}`], lang, activeAudioRef, missingAudioRef)
   if (played) return
   const text = buildCheckoutReminder(remaining, lang)
-  if (text) speakCallout(text, lang)
+  if (text) await speakCallout(text, lang)
 }
 
 function buildTurnCalloutAudioKey(evt: any): string | null {
@@ -1476,6 +1476,7 @@ async function tryPlayCalloutAudio(
   try {
     activeAudioRef.current = audio
     await audio.play()
+    await waitForAudioEnd(audio)
     return true
   } catch {
     return false
@@ -1651,17 +1652,30 @@ function buildCheckoutReminder(remaining: number, lang: VoiceLang): string | nul
   return `You require ${remaining}.`
 }
 
-function speakCallout(text: string, lang: VoiceLang): void {
-  if (typeof window === 'undefined') return
+function speakCallout(text: string, lang: VoiceLang): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve()
   const synth = (window as any).speechSynthesis
   const Ctor = (window as any).SpeechSynthesisUtterance
-  if (!synth || !Ctor) return
+  if (!synth || !Ctor) return Promise.resolve()
   const utter = new Ctor(text)
   utter.lang = lang === 'NL' ? 'nl-NL' : lang === 'DE' ? 'de-DE' : 'en-US'
   utter.rate = 1
   utter.pitch = 1
   utter.volume = 1
-  synth.speak(utter)
+  return new Promise((resolve) => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      utter.onend = null
+      utter.onerror = null
+      resolve()
+    }
+    utter.onend = finish
+    utter.onerror = finish
+    synth.speak(utter)
+    window.setTimeout(finish, 5000)
+  })
 }
 
 function ordinalWord(n: number, lang: VoiceLang): string {
