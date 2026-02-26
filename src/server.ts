@@ -328,6 +328,28 @@ app.post('/api/friends/block', (req, res) => {
   }
 })
 
+app.get('/api/friends/challenges/me', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+
+  const pending = pendingChallengesForUser(user.id).map((invite) => {
+    const from = getUserById(invite.fromUserId)
+    return {
+      challengeId: invite.id,
+      from: from
+        ? { userId: from.id, displayName: from.displayName, email: from.email }
+        : { userId: invite.fromUserId, displayName: 'Friend', email: '' },
+      createdAt: invite.createdAt,
+      expiresAt: invite.createdAt + CHALLENGE_EXPIRE_MS,
+    }
+  })
+
+  res.status(200).json({ ok: true, incoming: pending })
+})
+
 app.post('/api/auth/autodarts', (req, res) => {
   const token = bearerTokenFromReq(req)
   const user = getUserBySessionToken(token)
@@ -651,6 +673,7 @@ const autodartsMockDartSchema = z.object({
 const socialIdentifySchema = z.any()
 const challengeFriendSchema = z.any()
 const challengeRespondSchema = z.any()
+const roomInviteSchema = z.any()
 
 type PendingAutodartsTurn = {
   playerId: string
@@ -1350,6 +1373,47 @@ io.on('connection', (socket) => {
       cb?.({ ok: true, accepted: true, roomCode: room.code })
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid challenge response')
+      cb?.({ ok: false, code: e.code, message: e.message })
+    }
+  })
+
+  socket.on('room:inviteFriend', (raw, cb) => {
+    try {
+      roomInviteSchema.parse(raw)
+      const friendUserId = String((raw as any)?.friendUserId ?? '').trim()
+      const authToken = String((raw as any)?.authToken ?? (raw as any)?.token ?? '').trim() || undefined
+      if (!friendUserId) throw new GameRuleError('BAD_REQUEST', 'friendUserId is required')
+
+      let fromUserId = (socket.data as any).userId as string | undefined
+      if (!fromUserId && authToken) {
+        const auth = resolveAuthIdentity(authToken)
+        if (auth) {
+          setSocketUser(auth.userId)
+          lastSeenByUserId.set(auth.userId, Date.now())
+          fromUserId = auth.userId
+        }
+      }
+      if (!fromUserId) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
+      if (!areFriends(fromUserId, friendUserId)) throw new GameRuleError('NOT_FRIENDS', 'You can only invite accepted friends')
+
+      const code = currentRoomCode()
+      const room = getRoom(code)
+      const fromUser = getUserById(fromUserId)
+      if (!fromUser) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
+
+      const targetSocketIds = [...(onlineSocketsByUserId.get(friendUserId) ?? new Set<string>())]
+      for (const targetSocketId of targetSocketIds) {
+        io.to(targetSocketId).emit('friends:roomInvite', {
+          roomCode: room.code,
+          roomTitle: room.title || null,
+          from: { userId: fromUser.id, displayName: fromUser.displayName },
+          createdAt: Date.now(),
+        })
+      }
+
+      cb?.({ ok: true, delivered: targetSocketIds.length })
+    } catch (err) {
+      const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid room invite request')
       cb?.({ ok: false, code: e.code, message: e.message })
     }
   })

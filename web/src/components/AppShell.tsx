@@ -17,6 +17,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [serverUrl, setServerUrl] = useState('')
   const [roomCode, setRoomCode] = useState<string | null>(null)
+  const [incomingRequestCount, setIncomingRequestCount] = useState(0)
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.matchMedia('(max-width: 520px)').matches
@@ -124,6 +125,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (!serverUrl) return
     const socket = getSocket(serverUrl)
 
+    async function refreshIncomingRequestCount() {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+      if (!token) {
+        setIncomingRequestCount(0)
+        return
+      }
+
+      try {
+        const [friendsRes, challengesRes] = await Promise.all([
+          fetch(`${serverUrl}/api/friends/me`, { headers: { authorization: `Bearer ${token}` } }),
+          fetch(`${serverUrl}/api/friends/challenges/me`, { headers: { authorization: `Bearer ${token}` } }),
+        ])
+        const friendsData = await friendsRes.json().catch(() => null)
+        const challengesData = await challengesRes.json().catch(() => null)
+        const incomingFriends = Array.isArray(friendsData?.incoming) ? friendsData.incoming.length : 0
+        const incomingChallenges = Array.isArray(challengesData?.incoming) ? challengesData.incoming.length : 0
+        setIncomingRequestCount(incomingFriends + incomingChallenges)
+      } catch {
+        // ignore badge refresh failures
+      }
+    }
+
     function identifyNow() {
       const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
       if (!token) return
@@ -131,32 +154,35 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
 
     identifyNow()
+    void refreshIncomingRequestCount()
 
     function onConnect() {
       identifyNow()
     }
 
     const identifyTimer = window.setInterval(() => identifyNow(), 20_000)
+    const badgeTimer = window.setInterval(() => void refreshIncomingRequestCount(), 12_000)
+
+    function onVisibility() {
+      if (document.visibilityState === 'visible') {
+        identifyNow()
+        void refreshIncomingRequestCount()
+      }
+    }
 
     function onChallengeInvite(evt: any) {
-      const challengeId = String(evt?.challengeId ?? '')
       const fromName = String(evt?.from?.displayName ?? 'A friend')
-      if (!challengeId) return
-
-      const accept = window.confirm(`${fromName} challenged you to a match. Accept now?`)
-      const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
-      void socket.emitWithAck('friends:challengeRespond', { challengeId, accept, authToken: token ?? undefined }).then((res: any) => {
-        if (!res?.ok && accept) {
-          setToast(res?.message ?? 'Could not accept challenge')
-          setTimeout(() => setToast(null), 2500)
-        }
-      })
+      setToast(`${fromName} sent you a challenge. Check incoming requests on Account.`)
+      setTimeout(() => setToast(null), 2600)
+      window.dispatchEvent(new Event('dc:challengeInvite'))
+      void refreshIncomingRequestCount()
     }
 
     function onFriendRequestReceived(evt: any) {
       const fromName = String(evt?.from?.displayName ?? 'Someone')
       setToast(`${fromName} sent you a friend request.`)
       setTimeout(() => setToast(null), 2200)
+      void refreshIncomingRequestCount()
     }
 
     function onChallengeResolved(evt: any) {
@@ -178,19 +204,32 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       window.location.href = `/room/${roomCode}/lobby`
     }
 
+    function onRoomInvite(evt: any) {
+      const roomCode = String(evt?.roomCode ?? '').toUpperCase()
+      const fromName = String(evt?.from?.displayName ?? 'A friend')
+      if (!roomCode) return
+      setToast(`${fromName} invited you to room ${roomCode}. Use code on Home to join.`)
+      setTimeout(() => setToast(null), 3800)
+    }
+
     socket.on('friends:challengeInvite', onChallengeInvite)
     socket.on('friends:requestReceived', onFriendRequestReceived)
     socket.on('friends:challengeResolved', onChallengeResolved)
     socket.on('friends:challengeMatchReady', onChallengeMatchReady)
+    socket.on('friends:roomInvite', onRoomInvite)
     socket.on('connect', onConnect)
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       window.clearInterval(identifyTimer)
+      window.clearInterval(badgeTimer)
       socket.off('friends:challengeInvite', onChallengeInvite)
       socket.off('friends:requestReceived', onFriendRequestReceived)
       socket.off('friends:challengeResolved', onChallengeResolved)
       socket.off('friends:challengeMatchReady', onChallengeMatchReady)
+      socket.off('friends:roomInvite', onRoomInvite)
       socket.off('connect', onConnect)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [serverUrl])
 
@@ -278,7 +317,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             Dartcounter
           </a>
           <button className="btn" onClick={() => setOpen((v) => !v)} aria-label="Menu">
-            Menu
+            {incomingRequestCount > 0 ? `Menu (${incomingRequestCount})` : 'Menu'}
           </button>
         </div>
       ) : null}
@@ -321,7 +360,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 Public lobbies
               </a>
               <a className="btn" href="/account" onClick={() => setOpen(false)}>
-                Account
+                {incomingRequestCount > 0 ? `Account (${incomingRequestCount})` : 'Account'}
               </a>
               {roomCode ? (
                 <button

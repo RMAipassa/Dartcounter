@@ -108,6 +108,13 @@ type FriendsState = {
   blocked: Array<{ user: FriendUser; blockedAt: number }>
 }
 
+type IncomingChallenge = {
+  challengeId: string
+  from: FriendUser
+  createdAt: number
+  expiresAt: number
+}
+
 export default function AccountPage() {
   const serverUrl = useMemo(() => getServerUrl(), [])
   const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN')
@@ -129,6 +136,7 @@ export default function AccountPage() {
   const [friends, setFriends] = useState<FriendsState | null>(null)
   const [friendIdentityInput, setFriendIdentityInput] = useState('')
   const [friendsLeaderboard, setFriendsLeaderboard] = useState<FriendLeaderboardRow[]>([])
+  const [incomingChallenges, setIncomingChallenges] = useState<IncomingChallenge[]>([])
 
   useEffect(() => {
     void refreshMe(serverUrl, setMe, setStats)
@@ -147,6 +155,7 @@ export default function AccountPage() {
     if (!me) {
       setFriends(null)
       setFriendsLeaderboard([])
+      setIncomingChallenges([])
       return
     }
     const token = localStorage.getItem('dc_authToken')
@@ -155,21 +164,25 @@ export default function AccountPage() {
     void socket.emitWithAck('social:identify', { authToken: token, token })
     void refreshFriends(serverUrl, setFriends)
     void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+    void refreshIncomingChallenges(serverUrl, setIncomingChallenges)
   }, [me, serverUrl])
 
   useEffect(() => {
     if (!me) return
     const refresh = () => {
       void refreshFriends(serverUrl, setFriends)
+      void refreshIncomingChallenges(serverUrl, setIncomingChallenges)
     }
     const t = window.setInterval(refresh, 12000)
     const onVisibility = () => {
       if (document.visibilityState === 'visible') refresh()
     }
     document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('dc:challengeInvite', refresh as any)
     return () => {
       window.clearInterval(t)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('dc:challengeInvite', refresh as any)
     }
   }, [me, serverUrl])
 
@@ -234,6 +247,7 @@ export default function AccountPage() {
       setAutodartsWsBaseInput('')
       setFriends(null)
       setFriendsLeaderboard([])
+      setIncomingChallenges([])
       setBusy(false)
     }
   }
@@ -323,7 +337,25 @@ export default function AccountPage() {
       const socket = getSocket(serverUrl)
       const res = await socket.emitWithAck('friends:challenge', { friendUserId, authToken: token })
       if (!res?.ok) throw new Error(res?.message ?? 'Could not send challenge')
+      await refreshIncomingChallenges(serverUrl, setIncomingChallenges)
       setError(null)
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function respondChallenge(challengeId: string, accept: boolean) {
+    setError(null)
+    setBusy(true)
+    try {
+      const token = localStorage.getItem('dc_authToken')
+      if (!token) throw new Error('Not signed in')
+      const socket = getSocket(serverUrl)
+      const res = await socket.emitWithAck('friends:challengeRespond', { challengeId, accept, authToken: token })
+      if (!res?.ok) throw new Error(res?.message ?? 'Could not respond to challenge')
+      await refreshIncomingChallenges(serverUrl, setIncomingChallenges)
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -580,6 +612,21 @@ export default function AccountPage() {
                 </button>
               </div>
             ))}
+
+            <div className="help" style={{ marginTop: 8 }}>Incoming challenges</div>
+            {incomingChallenges.length === 0 ? <span className="pill">None</span> : null}
+            {incomingChallenges.map((c) => (
+              <div key={c.challengeId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="pill">{c.from.displayName}</span>
+                <span className="pill">Expires: {new Date(c.expiresAt).toLocaleTimeString()}</span>
+                <button className="btn" disabled={busy} onClick={() => void respondChallenge(c.challengeId, true)}>
+                  Accept challenge
+                </button>
+                <button className="btn" disabled={busy} onClick={() => void respondChallenge(c.challengeId, false)}>
+                  Decline
+                </button>
+              </div>
+            ))}
           </div>
 
           <div className="col" style={{ marginTop: 12 }}>
@@ -827,6 +874,30 @@ async function refreshFriendsLeaderboard(
     return
   }
   setRows(data.rows as FriendLeaderboardRow[])
+}
+
+async function refreshIncomingChallenges(
+  serverUrl: string,
+  setIncoming: (rows: IncomingChallenge[]) => void,
+): Promise<void> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+  if (!token) {
+    setIncoming([])
+    return
+  }
+
+  const res = await fetch(`${serverUrl}/api/friends/challenges/me`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  })
+  const data = await res.json().catch(() => null)
+  if (!res.ok || !data?.ok || !Array.isArray(data.incoming)) {
+    setIncoming([])
+    return
+  }
+
+  setIncoming(data.incoming as IncomingChallenge[])
 }
 
 function recordLabel(record: { userId: string; value: number; displayName?: string | null } | null): string {

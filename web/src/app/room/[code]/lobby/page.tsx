@@ -6,6 +6,11 @@ import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
 import type { RoomSnapshot, X01Settings } from '@/lib/types'
 
+type LobbyFriend = {
+  user: { userId: string; displayName: string; email: string }
+  online: boolean
+}
+
 export default function LobbyPage() {
   const router = useRouter()
   const params = useParams<{ code: string }>()
@@ -16,6 +21,7 @@ export default function LobbyPage() {
   const [newPlayer, setNewPlayer] = useState('')
   const [startingPlayerIndex, setStartingPlayerIndex] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
+  const [friends, setFriends] = useState<LobbyFriend[]>([])
   const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
 
   useEffect(() => {
@@ -85,6 +91,30 @@ export default function LobbyPage() {
     }
   }, [code, hostSecret, serverUrl])
 
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+    if (!token) {
+      setFriends([])
+      return
+    }
+
+    const load = async () => {
+      const res = await fetch(`${serverUrl}/api/friends/me`, {
+        headers: { authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        setFriends([])
+        return
+      }
+      setFriends(Array.isArray(data.friends) ? data.friends : [])
+    }
+
+    void load()
+    const t = window.setInterval(() => void load(), 12000)
+    return () => window.clearInterval(t)
+  }, [serverUrl])
+
   const isHost = useMemo(() => {
     // best-effort: if we have a host secret, treat as host; server enforces anyway
     return Boolean(hostSecret)
@@ -131,6 +161,22 @@ export default function LobbyPage() {
       router.push(`/room/${code}/game`)
     } catch (e: any) {
       setToast(e?.message ?? String(e))
+    }
+  }
+
+  async function inviteFriend(friendUserId: string) {
+    try {
+      const authToken = localStorage.getItem('dc_authToken') ?? undefined
+      if (!authToken) throw new Error('Sign in to invite friends')
+      const socket = getSocket(serverUrl)
+      const res = await socket.emitWithAck('room:inviteFriend', { friendUserId, authToken })
+      if (!res?.ok) throw new Error(res?.message ?? 'Failed to send invite')
+      if (Number(res?.delivered ?? 0) > 0) setToast('Invite sent')
+      else setToast('Friend is offline, invite not delivered')
+      setTimeout(() => setToast(null), 1800)
+    } catch (e: any) {
+      setToast(e?.message ?? String(e))
+      setTimeout(() => setToast(null), 2200)
     }
   }
 
@@ -356,6 +402,22 @@ export default function LobbyPage() {
               </div>
             </>
           ) : null}
+
+          <hr className="hr" style={{ marginTop: 14 }} />
+
+          <div className="col">
+            <div className="help">Invite friends</div>
+            {friends.length === 0 ? <span className="pill">No friends found (sign in on Account)</span> : null}
+            {friends.map((f) => (
+              <div key={f.user.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="pill">{f.user.displayName}</span>
+                <span className="pill" style={{ color: f.online ? 'var(--good)' : 'var(--muted)' }}>{f.online ? 'online' : 'offline'}</span>
+                <button className="btn" onClick={() => void inviteFriend(f.user.userId)}>
+                  Invite
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
