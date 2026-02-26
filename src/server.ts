@@ -641,17 +641,22 @@ const autodartsMockDartSchema = z.object({
   multiplier: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
 })
 
-const socialIdentifySchema = z.object({
-  authToken: z.string().trim().min(1).max(256),
-})
+const socialIdentifySchema = z
+  .object({
+    authToken: z.string().trim().min(1).max(512).optional(),
+    token: z.string().trim().min(1).max(512).optional(),
+  })
+  .refine((v) => Boolean(v.authToken || v.token), { message: 'TOKEN_REQUIRED' })
 
 const challengeFriendSchema = z.object({
   friendUserId: z.string().trim().min(1).max(128),
+  authToken: z.string().trim().min(1).max(512).optional(),
 })
 
 const challengeRespondSchema = z.object({
   challengeId: z.string().trim().min(1).max(128),
   accept: z.boolean(),
+  authToken: z.string().trim().min(1).max(512).optional(),
 })
 
 type PendingAutodartsTurn = {
@@ -1222,8 +1227,8 @@ io.on('connection', (socket) => {
 
   socket.on('social:identify', (raw, cb) => {
     try {
-      const { authToken } = socialIdentifySchema.parse(raw)
-      const auth = resolveAuthIdentity(authToken)
+      const body = socialIdentifySchema.parse(raw)
+      const auth = resolveAuthIdentity(body.authToken ?? body.token)
       if (!auth) throw new GameRuleError('AUTH_INVALID', 'Authentication token is invalid or expired')
       setSocketUser(auth.userId)
       emitPendingChallengeInvites(auth.userId)
@@ -1236,8 +1241,15 @@ io.on('connection', (socket) => {
 
   socket.on('friends:challenge', (raw, cb) => {
     try {
-      const { friendUserId } = challengeFriendSchema.parse(raw)
-      const fromUserId = (socket.data as any).userId as string | undefined
+      const { friendUserId, authToken } = challengeFriendSchema.parse(raw)
+      let fromUserId = (socket.data as any).userId as string | undefined
+      if (!fromUserId && authToken) {
+        const auth = resolveAuthIdentity(authToken)
+        if (auth) {
+          setSocketUser(auth.userId)
+          fromUserId = auth.userId
+        }
+      }
       if (!fromUserId) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
       if (!areFriends(fromUserId, friendUserId)) throw new GameRuleError('NOT_FRIENDS', 'You can only challenge accepted friends')
 
@@ -1274,8 +1286,15 @@ io.on('connection', (socket) => {
 
   socket.on('friends:challengeRespond', (raw, cb) => {
     try {
-      const { challengeId, accept } = challengeRespondSchema.parse(raw)
-      const toUserId = (socket.data as any).userId as string | undefined
+      const { challengeId, accept, authToken } = challengeRespondSchema.parse(raw)
+      let toUserId = (socket.data as any).userId as string | undefined
+      if (!toUserId && authToken) {
+        const auth = resolveAuthIdentity(authToken)
+        if (auth) {
+          setSocketUser(auth.userId)
+          toUserId = auth.userId
+        }
+      }
       if (!toUserId) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
 
       const invite = challengeById.get(challengeId)

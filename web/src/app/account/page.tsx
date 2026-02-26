@@ -152,7 +152,7 @@ export default function AccountPage() {
     const token = localStorage.getItem('dc_authToken')
     if (!token) return
     const socket = getSocket(serverUrl)
-    void socket.emitWithAck('social:identify', { authToken: token })
+    void socket.emitWithAck('social:identify', { authToken: token, token })
     void refreshFriends(serverUrl, setFriends)
     void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
   }, [me, serverUrl])
@@ -321,9 +321,7 @@ export default function AccountPage() {
       const token = localStorage.getItem('dc_authToken')
       if (!token) throw new Error('Not signed in')
       const socket = getSocket(serverUrl)
-      const identifyRes = await socket.emitWithAck('social:identify', { authToken: token })
-      if (!identifyRes?.ok) throw new Error(identifyRes?.message ?? 'Not authenticated on socket')
-      const res = await socket.emitWithAck('friends:challenge', { friendUserId })
+      const res = await socket.emitWithAck('friends:challenge', { friendUserId, authToken: token })
       if (!res?.ok) throw new Error(res?.message ?? 'Could not send challenge')
       setError(null)
     } catch (e: any) {

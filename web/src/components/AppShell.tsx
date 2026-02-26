@@ -127,7 +127,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     function identifyNow() {
       const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
       if (!token) return
-      void socket.emitWithAck('social:identify', { authToken: token })
+      void socket.emitWithAck('social:identify', { authToken: token, token })
     }
 
     identifyNow()
@@ -144,7 +144,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       if (!challengeId) return
 
       const accept = window.confirm(`${fromName} challenged you to a match. Accept now?`)
-      void socket.emitWithAck('friends:challengeRespond', { challengeId, accept }).then((res: any) => {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+      void socket.emitWithAck('friends:challengeRespond', { challengeId, accept, authToken: token ?? undefined }).then((res: any) => {
         if (!res?.ok && accept) {
           setToast(res?.message ?? 'Could not accept challenge')
           setTimeout(() => setToast(null), 2500)
