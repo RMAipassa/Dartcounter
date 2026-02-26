@@ -671,6 +671,8 @@ type ChallengeInvite = {
   status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED'
 }
 
+const CHALLENGE_EXPIRE_MS = 5 * 60_000
+
 const autodartsPendingTurnByRoomCode = new Map<string, PendingAutodartsTurn>()
 const challengeById = new Map<string, ChallengeInvite>()
 const requestRateByUserId = new Map<string, number[]>()
@@ -684,6 +686,22 @@ function enforceRateLimit(map: Map<string, number[]>, userId: string, maxCount: 
   }
   recent.push(now)
   map.set(userId, recent)
+}
+
+function pruneExpiredChallenges() {
+  const now = Date.now()
+  for (const invite of challengeById.values()) {
+    if (invite.status !== 'PENDING') continue
+    if (now - invite.createdAt > CHALLENGE_EXPIRE_MS) invite.status = 'EXPIRED'
+  }
+}
+
+function pendingChallengesForUser(userId: string): ChallengeInvite[] {
+  pruneExpiredChallenges()
+  const now = Date.now()
+  return [...challengeById.values()].filter(
+    (c) => c.status === 'PENDING' && c.toUserId === userId && now - c.createdAt <= CHALLENGE_EXPIRE_MS,
+  )
 }
 
 function getAutodartsPendingTurn(roomCode: string) {
@@ -1149,6 +1167,18 @@ io.on('connection', (socket) => {
     }
   }
 
+  function emitPendingChallengeInvites(toUserId: string) {
+    const invites = pendingChallengesForUser(toUserId)
+    for (const invite of invites) {
+      const from = getUserById(invite.fromUserId)
+      socket.emit('friends:challengeInvite', {
+        challengeId: invite.id,
+        from: from ? { userId: from.id, displayName: from.displayName } : { userId: invite.fromUserId, displayName: 'Friend' },
+        createdAt: invite.createdAt,
+      })
+    }
+  }
+
   function detachFromRoom(code: string) {
     try {
       const room = getRoom(code)
@@ -1196,6 +1226,7 @@ io.on('connection', (socket) => {
       const auth = resolveAuthIdentity(authToken)
       if (!auth) throw new GameRuleError('AUTH_INVALID', 'Authentication token is invalid or expired')
       setSocketUser(auth.userId)
+      emitPendingChallengeInvites(auth.userId)
       cb?.({ ok: true, user: { id: auth.userId, displayName: auth.displayName } })
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid identify request')
@@ -1209,9 +1240,9 @@ io.on('connection', (socket) => {
       const fromUserId = (socket.data as any).userId as string | undefined
       if (!fromUserId) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
       if (!areFriends(fromUserId, friendUserId)) throw new GameRuleError('NOT_FRIENDS', 'You can only challenge accepted friends')
-      if (!isUserOnline(friendUserId)) throw new GameRuleError('FRIEND_OFFLINE', 'Friend is offline')
 
       enforceRateLimit(challengeRateByUserId, fromUserId, 10, 60_000)
+      pruneExpiredChallenges()
 
       const fromUser = getUserById(fromUserId)
       if (!fromUser) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
@@ -1250,7 +1281,7 @@ io.on('connection', (socket) => {
       const invite = challengeById.get(challengeId)
       if (!invite || invite.status !== 'PENDING') throw new GameRuleError('CHALLENGE_NOT_FOUND', 'Challenge not found')
       if (invite.toUserId !== toUserId) throw new GameRuleError('NOT_ALLOWED', 'Not your challenge')
-      if (Date.now() - invite.createdAt > 2 * 60_000) {
+      if (Date.now() - invite.createdAt > CHALLENGE_EXPIRE_MS) {
         invite.status = 'EXPIRED'
         throw new GameRuleError('CHALLENGE_EXPIRED', 'Challenge expired')
       }

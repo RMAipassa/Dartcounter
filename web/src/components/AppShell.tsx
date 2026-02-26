@@ -122,11 +122,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!serverUrl) return
-    const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
-    if (!token) return
-
     const socket = getSocket(serverUrl)
-    void socket.emitWithAck('social:identify', { authToken: token })
+
+    function identifyNow() {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+      if (!token) return
+      void socket.emitWithAck('social:identify', { authToken: token })
+    }
+
+    identifyNow()
+
+    function onConnect() {
+      identifyNow()
+    }
+
+    const identifyTimer = window.setInterval(() => identifyNow(), 20_000)
 
     function onChallengeInvite(evt: any) {
       const challengeId = String(evt?.challengeId ?? '')
@@ -171,12 +181,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     socket.on('friends:requestReceived', onFriendRequestReceived)
     socket.on('friends:challengeResolved', onChallengeResolved)
     socket.on('friends:challengeMatchReady', onChallengeMatchReady)
+    socket.on('connect', onConnect)
 
     return () => {
+      window.clearInterval(identifyTimer)
       socket.off('friends:challengeInvite', onChallengeInvite)
       socket.off('friends:requestReceived', onFriendRequestReceived)
       socket.off('friends:challengeResolved', onChallengeResolved)
       socket.off('friends:challengeMatchReady', onChallengeMatchReady)
+      socket.off('connect', onConnect)
     }
   }, [serverUrl])
 
