@@ -1378,19 +1378,31 @@ function parseVoiceScore180(input: string): number | null {
     .trim()
   if (!txt) return null
 
-  const direct = Number(txt)
+  const normalized = normalizeSpokenNumberText(txt)
+
+  const direct = Number(normalized)
   if (Number.isInteger(direct) && direct >= 1 && direct <= 180) return direct
 
-  const numberInText = txt.match(/\b(\d{1,3})\b/)
+  const numberInText = normalized.match(/\b(\d{1,3})\b/)
   if (numberInText) {
     const n = Number(numberInText[1])
     if (Number.isInteger(n) && n >= 1 && n <= 180) return n
   }
 
-  const english = parseEnglishNumber(txt)
+  const english = parseEnglishNumber(normalized)
   if (english != null && english >= 1 && english <= 180) return english
 
   return null
+}
+
+function normalizeSpokenNumberText(input: string): string {
+  return input
+    .replace(/\bto\b/g, 'two')
+    .replace(/\btoo\b/g, 'two')
+    .replace(/\bfor\b/g, 'four')
+    .replace(/\bfore\b/g, 'four')
+    .replace(/\bwon\b/g, 'one')
+    .replace(/\btree\b/g, 'three')
 }
 
 function parseVoiceSubmitIntent(input: string): boolean {
