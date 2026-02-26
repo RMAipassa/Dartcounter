@@ -115,6 +115,15 @@ type IncomingChallenge = {
   expiresAt: number
 }
 
+type IncomingRoomInvite = {
+  inviteId: string
+  roomCode: string
+  roomTitle: string | null
+  from: FriendUser
+  createdAt: number
+  expiresAt: number
+}
+
 export default function AccountPage() {
   const serverUrl = useMemo(() => getServerUrl(), [])
   const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN')
@@ -137,6 +146,7 @@ export default function AccountPage() {
   const [friendIdentityInput, setFriendIdentityInput] = useState('')
   const [friendsLeaderboard, setFriendsLeaderboard] = useState<FriendLeaderboardRow[]>([])
   const [incomingChallenges, setIncomingChallenges] = useState<IncomingChallenge[]>([])
+  const [incomingInvites, setIncomingInvites] = useState<IncomingRoomInvite[]>([])
 
   useEffect(() => {
     void refreshMe(serverUrl, setMe, setStats)
@@ -156,6 +166,7 @@ export default function AccountPage() {
       setFriends(null)
       setFriendsLeaderboard([])
       setIncomingChallenges([])
+      setIncomingInvites([])
       return
     }
     const token = localStorage.getItem('dc_authToken')
@@ -165,6 +176,7 @@ export default function AccountPage() {
     void refreshFriends(serverUrl, setFriends)
     void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
     void refreshIncomingChallenges(serverUrl, setIncomingChallenges)
+    void refreshIncomingInvites(serverUrl, setIncomingInvites)
   }, [me, serverUrl])
 
   useEffect(() => {
@@ -172,6 +184,7 @@ export default function AccountPage() {
     const refresh = () => {
       void refreshFriends(serverUrl, setFriends)
       void refreshIncomingChallenges(serverUrl, setIncomingChallenges)
+      void refreshIncomingInvites(serverUrl, setIncomingInvites)
     }
     const t = window.setInterval(refresh, 12000)
     const onVisibility = () => {
@@ -179,10 +192,12 @@ export default function AccountPage() {
     }
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('dc:challengeInvite', refresh as any)
+    window.addEventListener('dc:roomInvite', refresh as any)
     return () => {
       window.clearInterval(t)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('dc:challengeInvite', refresh as any)
+      window.removeEventListener('dc:roomInvite', refresh as any)
     }
   }, [me, serverUrl])
 
@@ -248,6 +263,7 @@ export default function AccountPage() {
       setFriends(null)
       setFriendsLeaderboard([])
       setIncomingChallenges([])
+      setIncomingInvites([])
       setBusy(false)
     }
   }
@@ -356,6 +372,27 @@ export default function AccountPage() {
       const res = await socket.emitWithAck('friends:challengeRespond', { challengeId, accept, authToken: token })
       if (!res?.ok) throw new Error(res?.message ?? 'Could not respond to challenge')
       await refreshIncomingChallenges(serverUrl, setIncomingChallenges)
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function respondRoomInvite(inviteId: string, accept: boolean) {
+    setError(null)
+    setBusy(true)
+    try {
+      const token = localStorage.getItem('dc_authToken')
+      if (!token) throw new Error('Not signed in')
+      const socket = getSocket(serverUrl)
+      const res = await socket.emitWithAck('room:inviteRespond', { inviteId, accept, authToken: token })
+      if (!res?.ok) throw new Error(res?.message ?? 'Could not respond to invite')
+      await refreshIncomingInvites(serverUrl, setIncomingInvites)
+      if (accept && typeof res?.roomCode === 'string') {
+        localStorage.setItem('dc_role', 'PLAYER')
+        window.location.href = `/room/${String(res.roomCode).toUpperCase()}/lobby`
+      }
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -623,6 +660,22 @@ export default function AccountPage() {
                   Accept challenge
                 </button>
                 <button className="btn" disabled={busy} onClick={() => void respondChallenge(c.challengeId, false)}>
+                  Decline
+                </button>
+              </div>
+            ))}
+
+            <div className="help" style={{ marginTop: 8 }}>Incoming invites</div>
+            {incomingInvites.length === 0 ? <span className="pill">None</span> : null}
+            {incomingInvites.map((inv) => (
+              <div key={inv.inviteId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="pill">{inv.from.displayName}</span>
+                <span className="pill">Room: {inv.roomCode}</span>
+                {inv.roomTitle ? <span className="pill">{inv.roomTitle}</span> : null}
+                <button className="btn" disabled={busy} onClick={() => void respondRoomInvite(inv.inviteId, true)}>
+                  Join lobby
+                </button>
+                <button className="btn" disabled={busy} onClick={() => void respondRoomInvite(inv.inviteId, false)}>
                   Decline
                 </button>
               </div>
@@ -898,6 +951,30 @@ async function refreshIncomingChallenges(
   }
 
   setIncoming(data.incoming as IncomingChallenge[])
+}
+
+async function refreshIncomingInvites(
+  serverUrl: string,
+  setIncoming: (rows: IncomingRoomInvite[]) => void,
+): Promise<void> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
+  if (!token) {
+    setIncoming([])
+    return
+  }
+
+  const res = await fetch(`${serverUrl}/api/friends/invites/me`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  })
+  const data = await res.json().catch(() => null)
+  if (!res.ok || !data?.ok || !Array.isArray(data.incoming)) {
+    setIncoming([])
+    return
+  }
+
+  setIncoming(data.incoming as IncomingRoomInvite[])
 }
 
 function recordLabel(record: { userId: string; value: number; displayName?: string | null } | null): string {

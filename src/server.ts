@@ -350,6 +350,30 @@ app.get('/api/friends/challenges/me', (req, res) => {
   res.status(200).json({ ok: true, incoming: pending })
 })
 
+app.get('/api/friends/invites/me', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+
+  const pending = pendingRoomInvitesForUser(user.id).map((invite) => {
+    const from = getUserById(invite.fromUserId)
+    return {
+      inviteId: invite.id,
+      roomCode: invite.roomCode,
+      roomTitle: invite.roomTitle,
+      from: from
+        ? { userId: from.id, displayName: from.displayName, email: from.email }
+        : { userId: invite.fromUserId, displayName: 'Friend', email: '' },
+      createdAt: invite.createdAt,
+      expiresAt: invite.createdAt + ROOM_INVITE_EXPIRE_MS,
+    }
+  })
+
+  res.status(200).json({ ok: true, incoming: pending })
+})
+
 app.post('/api/auth/autodarts', (req, res) => {
   const token = bearerTokenFromReq(req)
   const user = getUserBySessionToken(token)
@@ -692,10 +716,22 @@ type ChallengeInvite = {
   status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED'
 }
 
+type RoomInvite = {
+  id: string
+  fromUserId: string
+  toUserId: string
+  roomCode: string
+  roomTitle: string | null
+  createdAt: number
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED'
+}
+
 const CHALLENGE_EXPIRE_MS = 5 * 60_000
+const ROOM_INVITE_EXPIRE_MS = 30 * 60_000
 
 const autodartsPendingTurnByRoomCode = new Map<string, PendingAutodartsTurn>()
 const challengeById = new Map<string, ChallengeInvite>()
+const roomInviteById = new Map<string, RoomInvite>()
 const requestRateByUserId = new Map<string, number[]>()
 const challengeRateByUserId = new Map<string, number[]>()
 
@@ -722,6 +758,22 @@ function pendingChallengesForUser(userId: string): ChallengeInvite[] {
   const now = Date.now()
   return [...challengeById.values()].filter(
     (c) => c.status === 'PENDING' && c.toUserId === userId && now - c.createdAt <= CHALLENGE_EXPIRE_MS,
+  )
+}
+
+function pruneExpiredRoomInvites() {
+  const now = Date.now()
+  for (const invite of roomInviteById.values()) {
+    if (invite.status !== 'PENDING') continue
+    if (now - invite.createdAt > ROOM_INVITE_EXPIRE_MS) invite.status = 'EXPIRED'
+  }
+}
+
+function pendingRoomInvitesForUser(userId: string): RoomInvite[] {
+  pruneExpiredRoomInvites()
+  const now = Date.now()
+  return [...roomInviteById.values()].filter(
+    (i) => i.status === 'PENDING' && i.toUserId === userId && now - i.createdAt <= ROOM_INVITE_EXPIRE_MS,
   )
 }
 
@@ -1200,6 +1252,20 @@ io.on('connection', (socket) => {
     }
   }
 
+  function emitPendingRoomInvites(toUserId: string) {
+    const invites = pendingRoomInvitesForUser(toUserId)
+    for (const invite of invites) {
+      const from = getUserById(invite.fromUserId)
+      socket.emit('friends:roomInvite', {
+        inviteId: invite.id,
+        roomCode: invite.roomCode,
+        roomTitle: invite.roomTitle,
+        from: from ? { userId: from.id, displayName: from.displayName } : { userId: invite.fromUserId, displayName: 'Friend' },
+        createdAt: invite.createdAt,
+      })
+    }
+  }
+
   function detachFromRoom(code: string) {
     try {
       const room = getRoom(code)
@@ -1250,6 +1316,7 @@ io.on('connection', (socket) => {
       setSocketUser(auth.userId)
       lastSeenByUserId.set(auth.userId, Date.now())
       emitPendingChallengeInvites(auth.userId)
+      emitPendingRoomInvites(auth.userId)
       cb?.({ ok: true, user: { id: auth.userId, displayName: auth.displayName } })
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid identify request')
@@ -1401,19 +1468,73 @@ io.on('connection', (socket) => {
       const fromUser = getUserById(fromUserId)
       if (!fromUser) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
 
+      pruneExpiredRoomInvites()
+      const invite: RoomInvite = {
+        id: randomId(10),
+        fromUserId,
+        toUserId: friendUserId,
+        roomCode: room.code,
+        roomTitle: room.title || null,
+        createdAt: Date.now(),
+        status: 'PENDING',
+      }
+      roomInviteById.set(invite.id, invite)
+
       const targetSocketIds = [...(onlineSocketsByUserId.get(friendUserId) ?? new Set<string>())]
       for (const targetSocketId of targetSocketIds) {
         io.to(targetSocketId).emit('friends:roomInvite', {
+          inviteId: invite.id,
           roomCode: room.code,
           roomTitle: room.title || null,
           from: { userId: fromUser.id, displayName: fromUser.displayName },
-          createdAt: Date.now(),
+          createdAt: invite.createdAt,
         })
       }
 
       cb?.({ ok: true, delivered: targetSocketIds.length })
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid room invite request')
+      cb?.({ ok: false, code: e.code, message: e.message })
+    }
+  })
+
+  socket.on('room:inviteRespond', (raw, cb) => {
+    try {
+      const inviteId = String((raw as any)?.inviteId ?? '').trim()
+      const accept = Boolean((raw as any)?.accept)
+      const authToken = String((raw as any)?.authToken ?? (raw as any)?.token ?? '').trim() || undefined
+      if (!inviteId) throw new GameRuleError('BAD_REQUEST', 'inviteId is required')
+
+      let toUserId = (socket.data as any).userId as string | undefined
+      if (!toUserId && authToken) {
+        const auth = resolveAuthIdentity(authToken)
+        if (auth) {
+          setSocketUser(auth.userId)
+          lastSeenByUserId.set(auth.userId, Date.now())
+          toUserId = auth.userId
+        }
+      }
+      if (!toUserId) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
+
+      const invite = roomInviteById.get(inviteId)
+      if (!invite || invite.status !== 'PENDING') throw new GameRuleError('INVITE_NOT_FOUND', 'Invite not found')
+      if (invite.toUserId !== toUserId) throw new GameRuleError('NOT_ALLOWED', 'Not your invite')
+      if (Date.now() - invite.createdAt > ROOM_INVITE_EXPIRE_MS) {
+        invite.status = 'EXPIRED'
+        throw new GameRuleError('INVITE_EXPIRED', 'Invite expired')
+      }
+
+      if (!accept) {
+        invite.status = 'DECLINED'
+        cb?.({ ok: true, accepted: false })
+        return
+      }
+
+      getRoom(invite.roomCode)
+      invite.status = 'ACCEPTED'
+      cb?.({ ok: true, accepted: true, roomCode: invite.roomCode })
+    } catch (err) {
+      const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid invite response')
       cb?.({ ok: false, code: e.code, message: e.message })
     }
   })

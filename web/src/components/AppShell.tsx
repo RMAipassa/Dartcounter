@@ -133,15 +133,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const [friendsRes, challengesRes] = await Promise.all([
+        const [friendsRes, challengesRes, invitesRes] = await Promise.all([
           fetch(`${serverUrl}/api/friends/me`, { headers: { authorization: `Bearer ${token}` } }),
           fetch(`${serverUrl}/api/friends/challenges/me`, { headers: { authorization: `Bearer ${token}` } }),
+          fetch(`${serverUrl}/api/friends/invites/me`, { headers: { authorization: `Bearer ${token}` } }),
         ])
         const friendsData = await friendsRes.json().catch(() => null)
         const challengesData = await challengesRes.json().catch(() => null)
+        const invitesData = await invitesRes.json().catch(() => null)
         const incomingFriends = Array.isArray(friendsData?.incoming) ? friendsData.incoming.length : 0
         const incomingChallenges = Array.isArray(challengesData?.incoming) ? challengesData.incoming.length : 0
-        setIncomingRequestCount(incomingFriends + incomingChallenges)
+        const incomingInvites = Array.isArray(invitesData?.incoming) ? invitesData.incoming.length : 0
+        setIncomingRequestCount(incomingFriends + incomingChallenges + incomingInvites)
       } catch {
         // ignore badge refresh failures
       }
@@ -210,6 +213,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       if (!roomCode) return
       setToast(`${fromName} invited you to room ${roomCode}. Use code on Home to join.`)
       setTimeout(() => setToast(null), 3800)
+      window.dispatchEvent(new Event('dc:roomInvite'))
+      void refreshIncomingRequestCount()
     }
 
     socket.on('friends:challengeInvite', onChallengeInvite)
