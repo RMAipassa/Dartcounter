@@ -38,6 +38,7 @@ export default function GamePage() {
   const [voiceHelpOpen, setVoiceHelpOpen] = useState(false)
   const [voiceCalloutsEnabled, setVoiceCalloutsEnabled] = useState(true)
   const [voiceAlwaysOn, setVoiceAlwaysOn] = useState(false)
+  const [voicePausedForCallout, setVoicePausedForCallout] = useState(false)
   const voiceLang: VoiceLang = 'EN'
   const [hostSecret, setHostSecret] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
@@ -45,6 +46,7 @@ export default function GamePage() {
   const speechRef = useRef<any>(null)
   const voiceAlwaysOnRef = useRef(false)
   const voiceManualStopRef = useRef(false)
+  const suppressVoiceRestartRef = useRef(false)
   const finishedRef = useRef(false)
   const lastCheckoutReminderKeyRef = useRef('')
   const playbackQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -53,7 +55,31 @@ export default function GamePage() {
 
   const enqueueCalloutPlayback = useCallback((job: () => Promise<void> | void) => {
     playbackQueueRef.current = playbackQueueRef.current
-      .then(() => Promise.resolve(job()))
+      .then(async () => {
+        const wasListening = Boolean(speechRef.current)
+        if (wasListening) {
+          suppressVoiceRestartRef.current = true
+          setVoicePausedForCallout(true)
+          try {
+            speechRef.current?.stop?.()
+          } catch {
+            // ignore
+          }
+          await sleep(160)
+        }
+
+        try {
+          await Promise.resolve(job())
+        } finally {
+          if (wasListening) {
+            suppressVoiceRestartRef.current = false
+            setVoicePausedForCallout(false)
+            if (!finishedRef.current && !speechRef.current) {
+              window.setTimeout(() => startVoiceInput(), 180)
+            }
+          }
+        }
+      })
       .catch(() => undefined)
     return playbackQueueRef.current
   }, [])
@@ -399,6 +425,9 @@ export default function GamePage() {
     rec.onend = () => {
       setVoiceListening(false)
       speechRef.current = null
+      if (suppressVoiceRestartRef.current) {
+        return
+      }
       if (voiceAlwaysOnRef.current && !voiceManualStopRef.current && !finishedRef.current) {
         window.setTimeout(() => startVoiceInput(), 220)
       }
@@ -407,6 +436,9 @@ export default function GamePage() {
     rec.onerror = () => {
       setVoiceListening(false)
       speechRef.current = null
+      if (suppressVoiceRestartRef.current) {
+        return
+      }
       setToast('Voice capture failed')
       setTimeout(() => setToast(null), 1800)
     }
@@ -470,6 +502,12 @@ export default function GamePage() {
           </div>
         </div>
       </div>
+
+      {voicePausedForCallout ? (
+        <div className="row" style={{ justifyContent: 'center' }}>
+          <span className="pill">Listening paused while callout plays...</span>
+        </div>
+      ) : null}
 
       <div className="desktopOnly">
       <div className="card" style={{ padding: 14 }}>
@@ -1567,6 +1605,10 @@ function waitForAudioEnd(audio: HTMLAudioElement): Promise<void> {
     audio.onended = () => finish(true)
     audio.onerror = () => finish(false)
   })
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function buildTurnCallout(evt: any, lang: VoiceLang): string | null {

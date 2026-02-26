@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
@@ -23,6 +23,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   })
 
   const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
+  const wakeLockRef = useRef<any>(null)
 
   const canFullscreen = useMemo(() => {
     if (typeof document === 'undefined') return false
@@ -66,6 +67,57 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     window.addEventListener('beforeinstallprompt', onBip)
     return () => window.removeEventListener('beforeinstallprompt', onBip)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      ((window.navigator as any).standalone === true)
+    if (!isStandalone) return
+
+    let cancelled = false
+
+    async function requestWakeLock() {
+      try {
+        if (cancelled) return
+        const nav: any = navigator
+        if (!nav?.wakeLock?.request) return
+        const lock = await nav.wakeLock.request('screen')
+        if (cancelled) {
+          try {
+            await lock.release()
+          } catch {
+            // ignore
+          }
+          return
+        }
+        wakeLockRef.current = lock
+        lock.addEventListener?.('release', () => {
+          if (wakeLockRef.current === lock) wakeLockRef.current = null
+        })
+      } catch {
+        // Wake Lock may be unsupported or denied.
+      }
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === 'visible' && !wakeLockRef.current) {
+        void requestWakeLock()
+      }
+    }
+
+    void requestWakeLock()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisibility)
+      if (wakeLockRef.current) {
+        void wakeLockRef.current.release().catch(() => undefined)
+        wakeLockRef.current = null
+      }
+    }
   }, [])
 
   async function install() {
