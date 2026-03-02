@@ -1182,10 +1182,12 @@ function getPlayerByName(roomCode: string, displayName: string) {
   return room.match.players.find((p) => p.name.toLowerCase() === name) ?? null
 }
 
-function clearControllersForSocket(roomCode: string, socketId: string) {
+function reassignControllersForSocket(roomCode: string, socketId: string, replacementSocketId?: string) {
   const room = getRoom(roomCode)
   for (const [playerId, controller] of Object.entries(room.controllerSocketIdByPlayerId)) {
-    if (controller === socketId) delete room.controllerSocketIdByPlayerId[playerId]
+    if (controller !== socketId) continue
+    if (replacementSocketId) room.controllerSocketIdByPlayerId[playerId] = replacementSocketId
+    else delete room.controllerSocketIdByPlayerId[playerId]
   }
 }
 
@@ -1269,8 +1271,36 @@ io.on('connection', (socket) => {
   function detachFromRoom(code: string) {
     try {
       const room = getRoom(code)
-      clearControllersForSocket(code, socket.id)
+      const leavingClient = getClient(room, socket.id)
       removeClient(room, socket.id)
+
+      if (leavingClient?.isHost && room.clients.size > 0) {
+        const remaining = [...room.clients.values()]
+        const secondPlayerName = room.match.players[1]?.name?.toLowerCase()
+        let nextHost =
+          (secondPlayerName
+            ? remaining.find((c) => c.role === 'PLAYER' && c.name.toLowerCase() === secondPlayerName)
+            : undefined) ??
+          remaining.find((c) => c.role === 'PLAYER') ??
+          remaining[0]
+
+        for (const c of remaining) c.isHost = false
+        nextHost.isHost = true
+        room.hostSecret = randomId(18)
+
+        io.to(nextHost.socketId).emit('room:hostGranted', {
+          code: room.code,
+          hostSecret: room.hostSecret,
+          reason: 'HOST_LEFT',
+        })
+        io.to(roomChannel(code)).emit('room:toast', {
+          message: `${nextHost.name} is now host.`,
+        })
+      }
+
+      const hostSocketId = [...room.clients.values()].find((c) => c.isHost)?.socketId
+      reassignControllersForSocket(code, socket.id, hostSocketId)
+
       socket.leave(roomChannel(code))
       // Room deletion is delayed (to allow refresh/rejoin)
       if (!isRoomEmpty(room)) emitSnapshot(code)
@@ -1468,7 +1498,19 @@ io.on('connection', (socket) => {
       const fromUser = getUserById(fromUserId)
       if (!fromUser) throw new GameRuleError('AUTH_REQUIRED', 'Sign in first')
 
+      const alreadyInLobby = [...room.clients.values()].some((c) => c.userId === friendUserId)
+      if (alreadyInLobby) {
+        throw new GameRuleError('ALREADY_IN_LOBBY', 'Friend is already in this lobby')
+      }
+
       pruneExpiredRoomInvites()
+      const duplicatePending = [...roomInviteById.values()].some(
+        (i) => i.status === 'PENDING' && i.roomCode === room.code && i.toUserId === friendUserId,
+      )
+      if (duplicatePending) {
+        throw new GameRuleError('INVITE_ALREADY_PENDING', 'Invite already pending for this friend')
+      }
+
       const invite: RoomInvite = {
         id: randomId(10),
         fromUserId,

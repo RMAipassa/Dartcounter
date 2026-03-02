@@ -147,6 +147,7 @@ export default function AccountPage() {
   const [friendsLeaderboard, setFriendsLeaderboard] = useState<FriendLeaderboardRow[]>([])
   const [incomingChallenges, setIncomingChallenges] = useState<IncomingChallenge[]>([])
   const [incomingInvites, setIncomingInvites] = useState<IncomingRoomInvite[]>([])
+  const [uiDensity, setUiDensity] = useState<'spacious' | 'compact'>('spacious')
 
   useEffect(() => {
     void refreshMe(serverUrl, setMe, setStats)
@@ -178,6 +179,12 @@ export default function AccountPage() {
     void refreshIncomingChallenges(serverUrl, setIncomingChallenges)
     void refreshIncomingInvites(serverUrl, setIncomingInvites)
   }, [me, serverUrl])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const current = localStorage.getItem('dc_uiDensity')
+    setUiDensity(current === 'compact' ? 'compact' : 'spacious')
+  }, [])
 
   useEffect(() => {
     if (!me) return
@@ -474,6 +481,14 @@ export default function AccountPage() {
     }
   }
 
+  function applyUiDensity(next: 'spacious' | 'compact') {
+    setUiDensity(next)
+    if (typeof window === 'undefined') return
+    localStorage.setItem('dc_uiDensity', next)
+    document.documentElement.setAttribute('data-ui-density', next)
+    window.dispatchEvent(new Event('dc:uiDensityChanged'))
+  }
+
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="card" style={{ padding: 16 }}>
@@ -488,6 +503,17 @@ export default function AccountPage() {
             <div className="row" style={{ flexWrap: 'wrap' }}>
               <span className="pill">Name: {me.displayName}</span>
               <span className="pill">Email: {me.email}</span>
+            </div>
+            <div className="col">
+              <label className="help">UI density</label>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <button className={uiDensity === 'spacious' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => applyUiDensity('spacious')}>
+                  Spacious
+                </button>
+                <button className={uiDensity === 'compact' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => applyUiDensity('compact')}>
+                  Compact
+                </button>
+              </div>
             </div>
             <div className="col">
               <label className="help">Personal autodarts device id</label>

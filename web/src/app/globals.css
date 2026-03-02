@@ -11,6 +11,10 @@
   --accent: #7dd3fc;
   --cta: #33d17a;
   --shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  --btnBorder: rgba(125, 211, 252, 0.28);
+  --btnBgA: rgba(53, 74, 108, 0.82);
+  --btnBgB: rgba(24, 38, 64, 0.9);
+  --btnGlow: 0 8px 20px rgba(8, 16, 36, 0.45);
 }
 
 * {
@@ -33,8 +37,7 @@ body {
   background: radial-gradient(1000px 600px at 20% 10%, rgba(125, 211, 252, 0.22), transparent 60%),
     radial-gradient(900px 600px at 70% 30%, rgba(46, 229, 157, 0.12), transparent 55%),
     linear-gradient(160deg, var(--bg0), var(--bg1));
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
-    "Segoe UI Emoji";
+  font-family: "Trebuchet MS", "Segoe UI", Tahoma, Arial, sans-serif;
 }
 
 a {
@@ -47,6 +50,62 @@ a {
   max-width: 980px;
   margin: 0 auto;
   padding: var(--pad);
+  padding-bottom: 108px;
+}
+
+:root[data-ui-density='compact'] .container {
+  max-width: 1180px;
+  --pad: 18px;
+}
+
+:root[data-ui-density='compact'] .card {
+  border-radius: 14px;
+}
+
+:root[data-ui-density='compact'] .row {
+  gap: 10px;
+}
+
+:root[data-ui-density='compact'] .col {
+  gap: 8px;
+}
+
+:root[data-ui-density='compact'] .btn {
+  padding: 9px 12px;
+  border-radius: 11px;
+}
+
+:root[data-ui-density='compact'] .mobileHomeTile {
+  min-height: 208px;
+  padding: 16px;
+}
+
+:root[data-ui-density='compact'] .mobileHomeTileTitle {
+  font-size: 26px;
+}
+
+:root[data-ui-density='compact'] .mobileHomeTileSub {
+  font-size: 15px;
+}
+
+:root[data-ui-density='compact'] .mobileDock {
+  width: min(1080px, calc(100% - 26px));
+}
+
+:root[data-ui-density='compact'] .mobileDockItem {
+  min-height: 58px;
+}
+
+@media (min-width: 1200px) {
+  .container {
+    max-width: 1240px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .container {
+    max-width: 1480px;
+  }
 }
 
 @media (max-width: 520px) {
@@ -64,9 +123,9 @@ a {
   justify-content: space-between;
   align-items: center;
   padding: 14px 16px;
-  background: rgba(10, 16, 32, 0.72);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(10px);
+  background: linear-gradient(180deg, rgba(19, 16, 40, 0.95), rgba(11, 16, 36, 0.82));
+  border-bottom: 1px solid rgba(125, 211, 252, 0.18);
+  backdrop-filter: blur(12px);
 }
 
 .brand {
@@ -181,13 +240,16 @@ a {
 
 .btn {
   appearance: none;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--btnBorder);
+  background: linear-gradient(180deg, var(--btnBgA), var(--btnBgB));
   color: var(--text);
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 11px 14px;
+  border-radius: 14px;
   cursor: pointer;
-  transition: transform 120ms ease, background 120ms ease;
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  box-shadow: var(--btnGlow);
+  font-weight: 700;
+  letter-spacing: 0.2px;
 }
 
 @media (max-width: 520px) {
@@ -198,16 +260,45 @@ a {
 }
 
 .btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(62, 88, 125, 0.72), rgba(28, 46, 74, 0.82));
+  border-color: rgba(125, 211, 252, 0.44);
+  box-shadow: 0 12px 24px rgba(8, 16, 36, 0.52);
 }
 
 .btn:active {
-  transform: translateY(1px);
+  transform: translateY(1px) scale(0.995);
+}
+
+.btn:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btnPrimary {
-  border-color: rgba(125, 211, 252, 0.4);
-  background: linear-gradient(180deg, rgba(125, 211, 252, 0.26), rgba(125, 211, 252, 0.12));
+  border-color: rgba(255, 132, 169, 0.55);
+  background: linear-gradient(180deg, rgba(255, 100, 149, 0.92), rgba(188, 52, 104, 0.86));
+  box-shadow: 0 10px 24px rgba(136, 22, 62, 0.38);
+}
+
+.menuNavBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.menuBtnIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.86);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
 }
 
 .input,
@@ -528,6 +619,7 @@ a {
   font-size: 28px;
   letter-spacing: 0.2px;
   margin: 0;
+  font-weight: 800;
 }
 
 .subtitle {
@@ -555,11 +647,449 @@ a {
   box-shadow: var(--shadow);
 }
 
+.mobileHomeTiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  max-width: 980px;
+  width: 100%;
+}
+
+.mobileHomeTile {
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  background: linear-gradient(180deg, rgba(32, 48, 78, 0.88), rgba(21, 34, 58, 0.92));
+  border-radius: 20px;
+  min-height: 188px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 5px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.mobileHomeTile:hover {
+  transform: translateY(-2px);
+  border-color: rgba(125, 211, 252, 0.34);
+}
+
+.mobileHomeTileIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(255, 88, 131, 0.22), rgba(125, 211, 252, 0.14));
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.mobileHomeTileIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.mobileHomeTileIconRose {
+  color: #ff5a8f;
+  background: linear-gradient(180deg, rgba(255, 90, 143, 0.2), rgba(88, 35, 73, 0.42));
+}
+
+.mobileHomeTileIconGold {
+  color: #f5be4e;
+  background: linear-gradient(180deg, rgba(245, 190, 78, 0.22), rgba(92, 68, 28, 0.42));
+}
+
+.mobileHomeTileIconMint {
+  color: #47d6b0;
+  background: linear-gradient(180deg, rgba(71, 214, 176, 0.24), rgba(27, 72, 69, 0.42));
+}
+
+.mobileHomeTileIconBlue {
+  color: #7ea9ff;
+  background: linear-gradient(180deg, rgba(126, 169, 255, 0.24), rgba(36, 58, 104, 0.42));
+}
+
+.mobileHomeTileTitle {
+  font-size: 22px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.mobileHomeTileSub {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.mobileDock {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, calc(100% - 16px));
+  bottom: max(8px, env(safe-area-inset-bottom));
+  z-index: 40;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(25, 39, 65, 0.96), rgba(13, 24, 44, 0.98));
+  backdrop-filter: blur(10px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+  padding: 8px;
+  gap: 6px;
+}
+
+.mobileDockItem {
+  border-radius: 12px;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobileDockItemActive {
+  background: linear-gradient(180deg, rgba(255, 88, 131, 0.26), rgba(50, 84, 132, 0.28));
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.mobileDockIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.mobileDockIcon svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (min-width: 821px) {
+  .mobileHomeTiles {
+    gap: 18px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .mobileHomeTile {
+    min-height: 248px;
+    padding: 20px;
+    border-radius: 24px;
+  }
+
+  .mobileHomeTileIcon {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    margin-bottom: 12px;
+  }
+
+  .mobileHomeTileIcon svg {
+    width: 26px;
+    height: 26px;
+  }
+
+  .mobileHomeTileTitle {
+    font-size: 30px;
+    line-height: 1.06;
+  }
+
+  .mobileHomeTileSub {
+    font-size: 18px;
+  }
+
+  .mobileDock {
+    left: 0;
+    right: 0;
+    transform: none;
+    margin: 0 auto;
+    width: min(980px, calc(100% - 28px));
+    border-radius: 20px;
+    padding: 10px;
+    gap: 8px;
+    border-color: rgba(125, 211, 252, 0.24);
+  }
+
+  .mobileDockItem {
+    min-height: 62px;
+    font-size: 13px;
+    gap: 6px;
+  }
+
+  .mobileDockIcon {
+    width: 26px;
+    height: 26px;
+  }
+
+  .mobileDockIcon svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .mobileHomeTiles {
+    max-width: 1200px;
+    gap: 20px;
+  }
+
+  .mobileHomeTile {
+    min-height: 286px;
+    padding: 22px;
+  }
+
+  .mobileHomeTileTitle {
+    font-size: 34px;
+  }
+
+  .mobileDock {
+    width: min(1200px, calc(100% - 36px));
+  }
+}
+
+@media (min-width: 1600px) {
+  .mobileHomeTiles {
+    max-width: 1420px;
+    gap: 22px;
+  }
+
+  .mobileHomeTile {
+    min-height: 312px;
+    padding: 24px;
+  }
+
+  .mobileHomeTileIcon {
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+  }
+
+  .mobileHomeTileIcon svg {
+    width: 30px;
+    height: 30px;
+  }
+
+  .mobileHomeTileTitle {
+    font-size: 38px;
+  }
+
+  .mobileHomeTileSub {
+    font-size: 20px;
+  }
+
+  .mobileDock {
+    width: min(1420px, calc(100% - 44px));
+  }
+
+  .mobileDockItem {
+    min-height: 68px;
+    font-size: 14px;
+  }
+}
+
 .homePresetRow .btn {
   min-width: 66px;
 }
 
 @media (max-width: 520px) {
+  body {
+    background: radial-gradient(900px 520px at 50% -15%, rgba(125, 211, 252, 0.14), transparent 56%),
+      radial-gradient(760px 420px at 20% 0%, rgba(255, 88, 131, 0.12), transparent 60%),
+      linear-gradient(180deg, #0b102a, #070d23 52%, #07112d);
+  }
+
+  .container {
+    padding-bottom: 94px;
+  }
+
+  .topbar {
+    padding: 12px 14px;
+    border-bottom-color: rgba(125, 211, 252, 0.16);
+  }
+
+  .brand {
+    font-size: 20px;
+    letter-spacing: 0.35px;
+  }
+
+  .title {
+    font-size: 34px;
+    letter-spacing: 0.3px;
+    line-height: 1.05;
+  }
+
+  .subtitle {
+    font-size: 18px;
+    line-height: 1.35;
+  }
+
+  .menuPanel {
+    width: calc(100% - 14px);
+    left: 7px;
+    transform: none;
+    border-radius: 20px;
+    border-color: rgba(125, 211, 252, 0.2);
+    background: linear-gradient(180deg, rgba(28, 40, 66, 0.95), rgba(13, 21, 40, 0.96));
+  }
+
+  .card {
+    border-radius: 20px;
+    border-color: rgba(125, 211, 252, 0.2);
+    background: linear-gradient(180deg, rgba(30, 44, 72, 0.72), rgba(20, 33, 58, 0.86));
+  }
+
+  .mobileHomeTile {
+    border: 1px solid rgba(125, 211, 252, 0.22);
+    background: linear-gradient(180deg, rgba(32, 48, 78, 0.88), rgba(21, 34, 58, 0.92));
+    border-radius: 20px;
+    min-height: 154px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 4px;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+    animation: tileIn 360ms ease both;
+  }
+
+  .mobileHomeTile:nth-child(2) {
+    animation-delay: 45ms;
+  }
+
+  .mobileHomeTile:nth-child(3) {
+    animation-delay: 90ms;
+  }
+
+  .mobileHomeTile:nth-child(4) {
+    animation-delay: 135ms;
+  }
+
+.mobileHomeTileIcon {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  background: linear-gradient(180deg, rgba(255, 88, 131, 0.22), rgba(125, 211, 252, 0.14));
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.mobileHomeTileIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.mobileHomeTileIconRose {
+  color: #ff5a8f;
+  background: linear-gradient(180deg, rgba(255, 90, 143, 0.2), rgba(88, 35, 73, 0.42));
+}
+
+.mobileHomeTileIconGold {
+  color: #f5be4e;
+  background: linear-gradient(180deg, rgba(245, 190, 78, 0.22), rgba(92, 68, 28, 0.42));
+}
+
+.mobileHomeTileIconMint {
+  color: #47d6b0;
+  background: linear-gradient(180deg, rgba(71, 214, 176, 0.24), rgba(27, 72, 69, 0.42));
+}
+
+.mobileHomeTileIconBlue {
+  color: #7ea9ff;
+  background: linear-gradient(180deg, rgba(126, 169, 255, 0.24), rgba(36, 58, 104, 0.42));
+}
+
+  .mobileHomeTileTitle {
+    font-size: 18px;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .mobileHomeTileSub {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .mobileDock {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    transform: none;
+    animation: dockIn 280ms ease both;
+  }
+
+  .mobileDockItem {
+    border-radius: 12px;
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .mobileDockItemActive {
+    background: linear-gradient(180deg, rgba(255, 88, 131, 0.26), rgba(50, 84, 132, 0.28));
+    color: rgba(255, 255, 255, 0.96);
+  }
+
+.mobileDockIcon {
+    width: 22px;
+    height: 22px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+  .mobileDockIcon svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  @keyframes tileIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes dockIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   .homeGrid {
     gap: 12px;
   }

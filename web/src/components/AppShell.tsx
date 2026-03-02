@@ -18,6 +18,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [serverUrl, setServerUrl] = useState('')
   const [roomCode, setRoomCode] = useState<string | null>(null)
   const [incomingRequestCount, setIncomingRequestCount] = useState(0)
+  const [uiDensity, setUiDensity] = useState<'spacious' | 'compact'>('spacious')
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.matchMedia('(max-width: 520px)').matches
@@ -34,12 +35,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setServerUrl(getServerUrl())
 
+    const applyDensity = () => {
+      const density = localStorage.getItem('dc_uiDensity') === 'compact' ? 'compact' : 'spacious'
+      setUiDensity(density)
+      document.documentElement.setAttribute('data-ui-density', density)
+    }
+    applyDensity()
+
+    const onDensityChanged = () => applyDensity()
+    window.addEventListener('dc:uiDensityChanged', onDensityChanged as any)
+
     const mq = window.matchMedia('(max-width: 520px)')
     const onChange = () => setIsMobile(Boolean(mq.matches))
     onChange()
     if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange)
     else mq.addListener(onChange)
     return () => {
+      window.removeEventListener('dc:uiDensityChanged', onDensityChanged as any)
       if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', onChange)
       else mq.removeListener(onChange)
     }
@@ -51,6 +63,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname, isMobile])
 
   const hideTopbar = isMobile && Boolean(pathname.match(/^\/room\/[^/]+\/game/i))
+  const showBottomNav = !Boolean(pathname.match(/^\/room\/[^/]+\/game/i))
 
   useEffect(() => {
     function onOpenMenu() {
@@ -217,11 +230,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       void refreshIncomingRequestCount()
     }
 
+    function onHostGranted(evt: any) {
+      const hostSecret = typeof evt?.hostSecret === 'string' ? evt.hostSecret : null
+      if (!hostSecret) return
+      localStorage.setItem('dc_hostSecret', hostSecret)
+      setToast('You are now host for this room.')
+      setTimeout(() => setToast(null), 2200)
+    }
+
     socket.on('friends:challengeInvite', onChallengeInvite)
     socket.on('friends:requestReceived', onFriendRequestReceived)
     socket.on('friends:challengeResolved', onChallengeResolved)
     socket.on('friends:challengeMatchReady', onChallengeMatchReady)
     socket.on('friends:roomInvite', onRoomInvite)
+    socket.on('room:hostGranted', onHostGranted)
     socket.on('connect', onConnect)
     document.addEventListener('visibilitychange', onVisibility)
 
@@ -233,10 +255,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       socket.off('friends:challengeResolved', onChallengeResolved)
       socket.off('friends:challengeMatchReady', onChallengeMatchReady)
       socket.off('friends:roomInvite', onRoomInvite)
+      socket.off('room:hostGranted', onHostGranted)
       socket.off('connect', onConnect)
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [serverUrl])
+
+  function applyUiDensity(next: 'spacious' | 'compact') {
+    if (typeof window === 'undefined') return
+    localStorage.setItem('dc_uiDensity', next)
+    setUiDensity(next)
+    document.documentElement.setAttribute('data-ui-density', next)
+    window.dispatchEvent(new Event('dc:uiDensityChanged'))
+  }
 
   async function install() {
     try {
@@ -358,54 +389,72 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             ) : null}
 
             <div className="col" style={{ marginTop: 10 }}>
-              <a className="btn" href="/" onClick={() => setOpen(false)}>
-                Home
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="pill">UI density</span>
+                <div className="row" style={{ gap: 8 }}>
+                  <button className={uiDensity === 'spacious' ? 'btn btnPrimary' : 'btn'} onClick={() => applyUiDensity('spacious')}>
+                    Spacious
+                  </button>
+                  <button className={uiDensity === 'compact' ? 'btn btnPrimary' : 'btn'} onClick={() => applyUiDensity('compact')}>
+                    Compact
+                  </button>
+                </div>
+              </div>
+              <a className="btn menuNavBtn" href="/" onClick={() => setOpen(false)}>
+                <span className="menuBtnIcon" aria-hidden="true">H</span>
+                <span>Home</span>
               </a>
-              <a className="btn" href="/lobbies" onClick={() => setOpen(false)}>
-                Public lobbies
+              <a className="btn menuNavBtn" href="/lobbies" onClick={() => setOpen(false)}>
+                <span className="menuBtnIcon" aria-hidden="true">L</span>
+                <span>Public lobbies</span>
               </a>
-              <a className="btn" href="/account" onClick={() => setOpen(false)}>
+              <a className="btn menuNavBtn" href="/account" onClick={() => setOpen(false)}>
+                <span className="menuBtnIcon" aria-hidden="true">A</span>
                 {incomingRequestCount > 0 ? `Account (${incomingRequestCount})` : 'Account'}
               </a>
               {roomCode ? (
                 <button
-                  className="btn"
+                  className="btn menuNavBtn"
                   onClick={() => {
                     setOpen(false)
                     leaveRoom()
                   }}
                 >
-                  Leave room
+                  <span className="menuBtnIcon" aria-hidden="true">X</span>
+                  <span>Leave room</span>
                 </button>
               ) : null}
               {roomCode && hostSecret ? (
                 <button
-                  className="btn"
+                  className="btn menuNavBtn"
                   onClick={() => {
                     setOpen(false)
                     undoLastTurn()
                   }}
                 >
-                  Undo last turn
+                  <span className="menuBtnIcon" aria-hidden="true">U</span>
+                  <span>Undo last turn</span>
                 </button>
               ) : null}
               <button
-                className={deferredPrompt ? 'btn btnPrimary' : 'btn'}
+                className={deferredPrompt ? 'btn btnPrimary menuNavBtn' : 'btn menuNavBtn'}
                 onClick={() => {
                   setOpen(false)
                   install()
                 }}
               >
-                Install app
+                <span className="menuBtnIcon" aria-hidden="true">I</span>
+                <span>Install app</span>
               </button>
               <button
-                className="btn"
+                className="btn menuNavBtn"
                 onClick={() => {
                   setOpen(false)
                   toggleFullscreen()
                 }}
               >
-                Fullscreen
+                <span className="menuBtnIcon" aria-hidden="true">F</span>
+                <span>Fullscreen</span>
               </button>
               <div className="help">Best fullscreen: use Install (Add to Home Screen).</div>
             </div>
@@ -414,6 +463,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       ) : null}
 
       {children}
+
+      {showBottomNav ? (
+        <nav className="mobileDock" aria-label="Primary">
+          <a className={pathname === '/' ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/">
+            <span className="mobileDockIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M4 11.5 12 5l8 6.5V20h-5v-5h-6v5H4z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <span>Home</span>
+          </a>
+          <a className={pathname.startsWith('/lobbies') ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/lobbies">
+            <span className="mobileDockIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span>Lobbies</span>
+          </a>
+          <a className={pathname.startsWith('/account') ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/account">
+            <span className="mobileDockIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="8" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M5 20a7 7 0 0 1 14 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span>Account</span>
+          </a>
+        </nav>
+      ) : null}
 
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
