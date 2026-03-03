@@ -1,19 +1,19 @@
 :root {
-  --bg0: #0b1020;
-  --bg1: #0a1a2a;
-  --panel: rgba(255, 255, 255, 0.06);
-  --panel2: rgba(255, 255, 255, 0.09);
-  --border: rgba(255, 255, 255, 0.14);
+  --bg0: #080808;
+  --bg1: #0e120e;
+  --panel: rgba(255, 255, 255, 0.045);
+  --panel2: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.18);
   --text: rgba(255, 255, 255, 0.92);
   --muted: rgba(255, 255, 255, 0.68);
-  --bad: #ff5a6b;
-  --good: #2ee59d;
-  --accent: #7dd3fc;
-  --cta: #33d17a;
+  --bad: #e23d3d;
+  --good: #35c46f;
+  --accent: #f2f2f2;
+  --cta: #37c46f;
   --shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
-  --btnBorder: rgba(125, 211, 252, 0.28);
-  --btnBgA: rgba(53, 74, 108, 0.82);
-  --btnBgB: rgba(24, 38, 64, 0.9);
+  --btnBorder: rgba(55, 196, 111, 0.35);
+  --btnBgA: rgba(34, 45, 34, 0.82);
+  --btnBgB: rgba(16, 24, 16, 0.92);
   --btnGlow: 0 8px 20px rgba(8, 16, 36, 0.45);
 }
 
@@ -34,8 +34,8 @@ body {
 body {
   margin: 0;
   color: var(--text);
-  background: radial-gradient(1000px 600px at 20% 10%, rgba(125, 211, 252, 0.22), transparent 60%),
-    radial-gradient(900px 600px at 70% 30%, rgba(46, 229, 157, 0.12), transparent 55%),
+  background: radial-gradient(1000px 620px at 18% 8%, rgba(226, 61, 61, 0.18), transparent 60%),
+    radial-gradient(900px 620px at 74% 26%, rgba(55, 196, 111, 0.14), transparent 56%),
     linear-gradient(160deg, var(--bg0), var(--bg1));
   font-family: "Trebuchet MS", "Segoe UI", Tahoma, Arial, sans-serif;
 }
@@ -123,8 +123,8 @@ a {
   justify-content: space-between;
   align-items: center;
   padding: 14px 16px;
-  background: linear-gradient(180deg, rgba(19, 16, 40, 0.95), rgba(11, 16, 36, 0.82));
-  border-bottom: 1px solid rgba(125, 211, 252, 0.18);
+  background: linear-gradient(180deg, rgba(18, 18, 18, 0.96), rgba(10, 13, 10, 0.86));
+  border-bottom: 1px solid rgba(226, 61, 61, 0.28);
   backdrop-filter: blur(12px);
 }
 
@@ -272,8 +272,8 @@ a {
 }
 
 .btn:hover {
-  background: linear-gradient(180deg, rgba(62, 88, 125, 0.72), rgba(28, 46, 74, 0.82));
-  border-color: rgba(125, 211, 252, 0.44);
+  background: linear-gradient(180deg, rgba(55, 74, 55, 0.78), rgba(24, 38, 24, 0.9));
+  border-color: rgba(55, 196, 111, 0.55);
   box-shadow: 0 12px 24px rgba(8, 16, 36, 0.52);
 }
 
@@ -288,9 +288,9 @@ a {
 }
 
 .btnPrimary {
-  border-color: rgba(255, 132, 169, 0.55);
-  background: linear-gradient(180deg, rgba(255, 100, 149, 0.92), rgba(188, 52, 104, 0.86));
-  box-shadow: 0 10px 24px rgba(136, 22, 62, 0.38);
+  border-color: rgba(226, 61, 61, 0.65);
+  background: linear-gradient(180deg, rgba(226, 61, 61, 0.94), rgba(149, 32, 32, 0.9));
+  box-shadow: 0 10px 24px rgba(98, 22, 22, 0.42);
 }
 
 .menuNavBtn {
@@ -376,8 +376,8 @@ a {
 }
 
 .keyPrimary {
-  border-color: rgba(125, 211, 252, 0.4);
-  background: linear-gradient(180deg, rgba(125, 211, 252, 0.26), rgba(125, 211, 252, 0.12));
+  border-color: rgba(55, 196, 111, 0.46);
+  background: linear-gradient(180deg, rgba(55, 196, 111, 0.34), rgba(55, 196, 111, 0.16));
 }
 
 /* Mobile game layout */
@@ -658,8 +658,8 @@ a {
 }
 
 .multTabActive {
-  border-color: rgba(125, 211, 252, 0.35);
-  background: rgba(125, 211, 252, 0.14);
+  border-color: rgba(55, 196, 111, 0.42);
+  background: rgba(55, 196, 111, 0.16);
   color: rgba(255,255,255,0.92);
 }
 
@@ -737,8 +737,8 @@ a {
 }
 
 .mobileHomeTile {
-  border: 1px solid rgba(125, 211, 252, 0.22);
-  background: linear-gradient(180deg, rgba(32, 48, 78, 0.88), rgba(21, 34, 58, 0.92));
+  border: 1px solid rgba(55, 196, 111, 0.28);
+  background: linear-gradient(180deg, rgba(22, 25, 22, 0.92), rgba(12, 14, 12, 0.96));
   border-radius: 20px;
   min-height: 188px;
   padding: 16px;
@@ -752,7 +752,7 @@ a {
 
 .mobileHomeTile:hover {
   transform: translateY(-2px);
-  border-color: rgba(125, 211, 252, 0.34);
+  border-color: rgba(226, 61, 61, 0.46);
 }
 
 .mobileHomeTileIcon {
@@ -762,7 +762,7 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, rgba(255, 88, 131, 0.22), rgba(125, 211, 252, 0.14));
+  background: linear-gradient(180deg, rgba(226, 61, 61, 0.26), rgba(55, 196, 111, 0.16));
   color: rgba(255, 255, 255, 0.95);
   font-weight: 800;
   margin-bottom: 8px;
@@ -813,9 +813,9 @@ a {
   width: min(720px, calc(100% - 16px));
   bottom: max(8px, env(safe-area-inset-bottom));
   z-index: 40;
-  border: 1px solid rgba(125, 211, 252, 0.2);
+  border: 1px solid rgba(55, 196, 111, 0.24);
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(25, 39, 65, 0.96), rgba(13, 24, 44, 0.98));
+  background: linear-gradient(180deg, rgba(18, 22, 18, 0.97), rgba(10, 12, 10, 0.99));
   backdrop-filter: blur(10px);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
   padding: 8px;
@@ -836,7 +836,7 @@ a {
 }
 
 .mobileDockItemActive {
-  background: linear-gradient(180deg, rgba(255, 88, 131, 0.26), rgba(50, 84, 132, 0.28));
+  background: linear-gradient(180deg, rgba(226, 61, 61, 0.34), rgba(55, 196, 111, 0.28));
   color: rgba(255, 255, 255, 0.96);
 }
 
@@ -899,7 +899,7 @@ a {
     border-radius: 20px;
     padding: 10px;
     gap: 8px;
-    border-color: rgba(125, 211, 252, 0.24);
+    border-color: rgba(55, 196, 111, 0.28);
   }
 
   .mobileDockItem {
@@ -985,9 +985,9 @@ a {
 
 @media (max-width: 520px) {
   body {
-    background: radial-gradient(900px 520px at 50% -15%, rgba(125, 211, 252, 0.14), transparent 56%),
-      radial-gradient(760px 420px at 20% 0%, rgba(255, 88, 131, 0.12), transparent 60%),
-      linear-gradient(180deg, #0b102a, #070d23 52%, #07112d);
+    background: radial-gradient(900px 520px at 50% -15%, rgba(55, 196, 111, 0.16), transparent 56%),
+      radial-gradient(760px 420px at 20% 0%, rgba(226, 61, 61, 0.14), transparent 60%),
+      linear-gradient(180deg, #090909, #0a0f0a 52%, #0b110b);
   }
 
   .container {
@@ -996,7 +996,7 @@ a {
 
   .topbar {
     padding: 12px 14px;
-    border-bottom-color: rgba(125, 211, 252, 0.16);
+    border-bottom-color: rgba(226, 61, 61, 0.2);
   }
 
   .brand {
@@ -1020,18 +1020,18 @@ a {
     left: 7px;
     transform: none;
     border-radius: 20px;
-    border-color: rgba(125, 211, 252, 0.2);
+    border-color: rgba(55, 196, 111, 0.24);
     background: linear-gradient(180deg, rgba(28, 40, 66, 0.95), rgba(13, 21, 40, 0.96));
   }
 
   .card {
     border-radius: 20px;
-    border-color: rgba(125, 211, 252, 0.2);
+    border-color: rgba(55, 196, 111, 0.24);
     background: linear-gradient(180deg, rgba(30, 44, 72, 0.72), rgba(20, 33, 58, 0.86));
   }
 
   .mobileHomeTile {
-    border: 1px solid rgba(125, 211, 252, 0.22);
+    border: 1px solid rgba(55, 196, 111, 0.26);
     background: linear-gradient(180deg, rgba(32, 48, 78, 0.88), rgba(21, 34, 58, 0.92));
     border-radius: 20px;
     min-height: 154px;
@@ -1063,7 +1063,7 @@ a {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-  background: linear-gradient(180deg, rgba(255, 88, 131, 0.22), rgba(125, 211, 252, 0.14));
+  background: linear-gradient(180deg, rgba(226, 61, 61, 0.26), rgba(55, 196, 111, 0.16));
   color: rgba(255, 255, 255, 0.95);
   font-weight: 800;
   margin-bottom: 8px;
@@ -1127,7 +1127,7 @@ a {
   }
 
   .mobileDockItemActive {
-    background: linear-gradient(180deg, rgba(255, 88, 131, 0.26), rgba(50, 84, 132, 0.28));
+    background: linear-gradient(180deg, rgba(226, 61, 61, 0.3), rgba(55, 196, 111, 0.24));
     color: rgba(255, 255, 255, 0.96);
   }
 
