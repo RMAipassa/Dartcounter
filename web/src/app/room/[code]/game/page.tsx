@@ -263,6 +263,8 @@ export default function GamePage() {
   voiceAlwaysOnRef.current = voiceAlwaysOn
   voiceListeningRef.current = voiceListening
   const statsByPlayerId = match?.statsByPlayerId ?? {}
+  const isX01 = settings?.gameType === 'X01'
+  const isAround = settings?.gameType === 'AROUND'
   const autodarts = snap?.room?.autodarts
   const autodartsActiveUserId = snap?.room?.autodartsActiveUserId ?? null
   const autodartsActivePlayerName = autodartsActiveUserId
@@ -283,21 +285,27 @@ export default function GamePage() {
     autodartsBufferPlayerId === currentPlayer?.id
   const autodartsTurnReady = autodartsControllingTurn && autodartsBufferReady
   const canSubmitNow = canSubmitByControl && (!autodartsControllingTurn || autodartsTurnReady)
-  const autodartsPerDartOnly = autodarts?.status === 'CONNECTED'
+  const autodartsPerDartOnly = autodarts?.status === 'CONNECTED' || isAround
   const autodartsReviewEdited =
     Boolean(autodartsLoadedForReview) &&
     (entryMode !== 'PER_DART' || !sameDarts(darts, autodartsLoadedForReview?.darts ?? []))
 
   const currentLegPlayer = currentPlayer ? leg?.players?.find((p) => p.playerId === currentPlayer.id) : null
-  const outRule: OutRule = settings?.doubleOut ? 'DOUBLE' : settings?.masterOut ? 'MASTER' : 'ANY'
+  const outRule: OutRule = isX01 ? (settings.doubleOut ? 'DOUBLE' : settings.masterOut ? 'MASTER' : 'ANY') : 'ANY'
   const checkoutMax = outRule === 'MASTER' ? 180 : 170
   const checkoutSuggestion =
+    isX01 &&
     currentLegPlayer &&
     currentLegPlayer.isIn &&
     currentLegPlayer.remaining <= checkoutMax &&
     currentLegPlayer.remaining > 1
       ? suggestCheckout({ remaining: currentLegPlayer.remaining, outRule })
       : null
+  const settingsSummary = settings
+    ? settings.gameType === 'X01'
+      ? `${settings.startScore} · ${settings.doubleIn ? 'DI' : 'SI'} · ${settings.doubleOut ? 'DO' : settings.masterOut ? 'MO' : 'SO'}`
+      : 'Around the Board'
+    : null
 
   const isMobile = useMediaQuery('(max-width: 520px)')
 
@@ -366,6 +374,9 @@ export default function GamePage() {
       const payload: any = {}
 
       const mode = override?.mode ?? entryMode
+      if (settings?.gameType === 'AROUND' && mode === 'TOTAL') {
+        throw new Error('Around mode uses per-dart input only')
+      }
       if (mode === 'PER_DART') {
         payload.darts = override?.darts ?? darts
       } else {
@@ -545,6 +556,11 @@ export default function GamePage() {
 
       const score = parseVoiceScore180(transcript)
       if (score != null) {
+        if (isAround) {
+          setToast('Around mode expects dart calls, e.g. "single 7"')
+          setTimeout(() => setToast(null), 1800)
+          return
+        }
         setEntryMode('TOTAL')
         setTotal(score)
         setTotalText(String(score))
@@ -618,9 +634,7 @@ export default function GamePage() {
             <h1 className="title">Game</h1>
             <p className="subtitle">
               {settings ? (
-                <span className="pill">
-                  {settings.startScore} · {settings.doubleIn ? 'DI' : 'SI'} · {settings.doubleOut ? 'DO' : settings.masterOut ? 'MO' : 'SO'}
-                </span>
+                <span className="pill">{settingsSummary}</span>
               ) : null}
             </p>
           </div>
@@ -820,7 +834,7 @@ export default function GamePage() {
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 16, marginBottom: 6 }}>Player stats</div>
-            <div className="help">Computed from turns (total mode assumes 3 darts per visit).</div>
+            <div className="help">{isAround ? 'Around mode: darts-thrown focused stats.' : 'Computed from turns (total mode assumes 3 darts per visit).'}</div>
           </div>
         </div>
 
@@ -836,15 +850,16 @@ export default function GamePage() {
               >
                 <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="pill" style={{ color: 'var(--text)' }}>{p.name}</span>
-                  <span className="pill">Avg: {s.threeDartAvg ?? '-'}</span>
+                  {isAround ? <span className="pill">Darts: {s.dartsThrown ?? 0}</span> : <span className="pill">Avg: {s.threeDartAvg ?? '-'}</span>}
                 </div>
                 <div className="row" style={{ flexWrap: 'wrap' }}>
                   {match?.settings?.setsEnabled ? <span className="pill">Sets: {s.setsWon}</span> : null}
                   <span className="pill">Legs: {s.legsWon}</span>
-                  <span className="pill">First 9: {s.first9Avg ?? '-'}</span>
-                  <span className="pill">CO%: {s.checkoutRate == null ? '-' : `${s.checkoutRate}%`}</span>
-                  <span className="pill">Hi finish: {s.highestFinish ?? '-'}</span>
-                  <span className="pill">Hi score: {s.highestScore}</span>
+                  <span className="pill">Darts thrown: {s.dartsThrown ?? 0}</span>
+                  {!isAround ? <span className="pill">First 9: {s.first9Avg ?? '-'}</span> : null}
+                  {!isAround ? <span className="pill">CO%: {s.checkoutRate == null ? '-' : `${s.checkoutRate}%`}</span> : null}
+                  {!isAround ? <span className="pill">Hi finish: {s.highestFinish ?? '-'}</span> : null}
+                  {!isAround ? <span className="pill">Hi score: {s.highestScore}</span> : null}
                   <span className="pill">Best leg: {s.bestLegDarts == null ? '-' : `${s.bestLegDarts} darts`}</span>
                   <span className="pill">Worst leg: {s.worstLegDarts == null ? '-' : `${s.worstLegDarts} darts`}</span>
                 </div>
@@ -935,6 +950,7 @@ function MobileGame({
   const currentView = playerViews.find((v) => v.isCurrent) ?? playerViews[0]
   const otherViews = playerViews.filter((v) => !v.isCurrent)
   const isTwoPlayer = playerViews.length === 2
+  const isAroundMode = match?.settings?.gameType === 'AROUND'
 
   return (
     <div className="mobileGame">
@@ -992,7 +1008,7 @@ function MobileGame({
               </div>
               <div className="mobileScorePaneBig">{v.remaining ?? '-'}</div>
               <div className="col" style={{ gap: 6 }}>
-                <span className="pill">Avg: {v.stats?.threeDartAvg ?? '-'}</span>
+                {isAroundMode ? <span className="pill">Darts: {v.stats?.dartsThrown ?? 0}</span> : <span className="pill">Avg: {v.stats?.threeDartAvg ?? '-'}</span>}
                 <span className="pill">Last: {v.last ?? '-'}</span>
               </div>
             </div>
@@ -1006,9 +1022,7 @@ function MobileGame({
               {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
             </div>
             {match ? (
-              <span className="pill">
-                {match.settings.startScore} · {match.settings.doubleIn ? 'DI' : 'SI'} · {match.settings.doubleOut ? 'DO' : match.settings.masterOut ? 'MO' : 'SO'}
-              </span>
+              <span className="pill">{match.settings.gameType === 'X01' ? `${match.settings.startScore} · ${match.settings.doubleIn ? 'DI' : 'SI'} · ${match.settings.doubleOut ? 'DO' : match.settings.masterOut ? 'MO' : 'SO'}` : 'Around the Board'}</span>
             ) : null}
           </div>
 
@@ -1031,7 +1045,7 @@ function MobileGame({
               </div>
             ) : (
               <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
-                <span className="pill">3-dart avg: {currentView?.stats?.threeDartAvg ?? '-'}</span>
+                {isAroundMode ? <span className="pill">Darts thrown: {currentView?.stats?.dartsThrown ?? 0}</span> : <span className="pill">3-dart avg: {currentView?.stats?.threeDartAvg ?? '-'}</span>}
                 <span className="pill">Last score: {currentView?.last ?? '-'}</span>
                 <span className="pill">Darts thrown: {currentView?.thrown ?? 0}</span>
               </div>
@@ -2181,7 +2195,7 @@ function PlayerPanel({
         <div className="row" style={{ flexWrap: 'wrap' }}>
           <span className="pill" style={{ color: 'var(--text)' }}>{player.name}</span>
           {isCurrent ? <span className="pill" style={{ color: 'rgba(0,0,0,0.82)', background: 'rgba(255,255,255,0.55)' }}>UP</span> : null}
-          {settings?.doubleIn ? (
+          {settings?.gameType === 'X01' && settings.doubleIn ? (
             <span className="pill" style={{ color: ps?.isIn ? 'var(--good)' : 'var(--muted)' }}>
               {ps?.isIn ? 'IN' : 'NOT IN'}
             </span>
@@ -2195,7 +2209,7 @@ function PlayerPanel({
         <div className="playerBigNum playerBigNumDesktop">{ps?.remaining ?? '-'}</div>
         <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
           <span className="pill">Legs: {stats?.legsWon ?? 0}</span>
-          <span className="pill">3-dart avg: {stats?.threeDartAvg ?? '-'}</span>
+          {settings?.gameType === 'AROUND' ? <span className="pill">Darts thrown: {stats?.dartsThrown ?? thrown}</span> : <span className="pill">3-dart avg: {stats?.threeDartAvg ?? '-'}</span>}
           <span className="pill">Last score: {last ?? '-'}</span>
           <span className="pill">Darts thrown: {thrown}</span>
         </div>

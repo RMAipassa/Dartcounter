@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
-import type { RoomSnapshot, X01Settings } from '@/lib/types'
+import type { AroundSettings, GameSettings, RoomSnapshot, X01Settings } from '@/lib/types'
 
 type LobbyFriend = {
   user: { userId: string; displayName: string; email: string }
@@ -141,7 +141,7 @@ export default function LobbyPage() {
     }
   }
 
-  async function updateSettings(settings: X01Settings) {
+  async function updateSettings(settings: GameSettings) {
     try {
       if (!hostSecret) throw new Error('Host secret not found on this device')
       const socket = getSocket(serverUrl)
@@ -453,34 +453,81 @@ function LobbySettings({
   locked,
   onChange,
 }: {
-  settings: X01Settings
+  settings: GameSettings
   locked: boolean
-  onChange: (s: X01Settings) => void
+  onChange: (s: GameSettings) => void
 }) {
-  const [draft, setDraft] = useState<X01Settings>(settings)
+  const [draft, setDraft] = useState<GameSettings>(settings)
   useEffect(() => setDraft(settings), [settings])
 
-  const invalid = draft.doubleOut && draft.masterOut
+  const invalid = draft.gameType === 'X01' && draft.doubleOut && draft.masterOut
   return (
     <div className="col" style={{ marginTop: 10 }}>
-      <div className="grid2">
-        <div className="col">
-          <label className="help">Start score</label>
-          <input
-            className="input"
-            type="number"
-            value={draft.startScore}
-            onChange={(e) => setDraft((s) => ({ ...s, startScore: Number(e.target.value) }))}
-            disabled={locked}
-          />
+      <div className="col">
+        <label className="help">Game mode</label>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <button
+            className="btn"
+            type="button"
+            disabled={locked || draft.gameType === 'X01'}
+            onClick={() =>
+              setDraft({
+                gameType: 'X01',
+                startScore: 501,
+                legsToWin: draft.legsToWin,
+                setsEnabled: draft.setsEnabled,
+                setsToWin: draft.setsEnabled ? Math.max(1, draft.setsToWin || 1) : 0,
+                doubleIn: false,
+                doubleOut: true,
+                masterOut: false,
+              })
+            }
+          >
+            X01
+          </button>
+          <button
+            className="btn"
+            type="button"
+            disabled={locked || draft.gameType === 'AROUND'}
+            onClick={() =>
+              setDraft({
+                gameType: 'AROUND',
+                legsToWin: draft.legsToWin,
+                setsEnabled: draft.setsEnabled,
+                setsToWin: draft.setsEnabled ? Math.max(1, draft.setsToWin || 1) : 0,
+                advanceByMultiplier: false,
+              })
+            }
+          >
+            Around the Board
+          </button>
         </div>
+      </div>
+
+      <div className="grid2">
+        {draft.gameType === 'X01' ? (
+          <div className="col">
+            <label className="help">Start score</label>
+            <input
+              className="input"
+              type="number"
+              value={draft.startScore}
+              min={2}
+              onChange={(e) =>
+                setDraft((s) => ({ ...(s as X01Settings), startScore: clampInt(Number(e.target.value), 2, 10001, 501) }))
+              }
+              disabled={locked}
+            />
+          </div>
+        ) : null}
         <div className="col">
           <label className="help">Legs to win</label>
           <input
             className="input"
             type="number"
             value={draft.legsToWin}
-            onChange={(e) => setDraft((s) => ({ ...s, legsToWin: Number(e.target.value) }))}
+            min={1}
+            onChange={(e) => setDraft((s) => ({ ...s, legsToWin: clampInt(Number(e.target.value), 1, 99, 1) }))}
             disabled={locked}
           />
         </div>
@@ -511,74 +558,102 @@ function LobbySettings({
             className="input"
             type="number"
             value={draft.setsToWin}
+            min={1}
             disabled={locked || !draft.setsEnabled}
-            onChange={(e) => setDraft((s) => ({ ...s, setsToWin: Number(e.target.value) }))}
+            onChange={(e) => setDraft((s) => ({ ...s, setsToWin: clampInt(Number(e.target.value), 1, 99, 1) }))}
           />
         </div>
       </div>
-      <div className="grid2">
-        <div className="col">
-          <label className="help">Input mode</label>
-          <div className="pill">Per-turn (total or darts)</div>
-        </div>
-        <div className="col">
-          <label className="help">In</label>
-          <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={draft.doubleIn}
-              disabled={locked}
-              onChange={(e) => setDraft((s) => ({ ...s, doubleIn: e.target.checked }))}
-            />
-            Double-in
-          </label>
-        </div>
-      </div>
+      {draft.gameType === 'X01' ? (
+        <>
+          <div className="grid2">
+            <div className="col">
+              <label className="help">Input mode</label>
+              <div className="pill">Per-turn (total or darts)</div>
+            </div>
+            <div className="col">
+              <label className="help">In</label>
+              <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={draft.doubleIn}
+                  disabled={locked}
+                  onChange={(e) => setDraft((s) => ({ ...(s as X01Settings), doubleIn: e.target.checked }))}
+                />
+                Double-in
+              </label>
+            </div>
+          </div>
 
-      <div className="col">
-        <label className="help">Out</label>
-        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <div className="col">
+            <label className="help">Out</label>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={draft.doubleOut}
+                  disabled={locked}
+                  onChange={(e) =>
+                    setDraft((s) => ({
+                      ...(s as X01Settings),
+                      doubleOut: e.target.checked,
+                      masterOut: e.target.checked ? false : (s as X01Settings).masterOut,
+                    }))
+                  }
+                />
+                Double-out
+              </label>
+              <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={draft.masterOut}
+                  disabled={locked}
+                  onChange={(e) =>
+                    setDraft((s) => ({
+                      ...(s as X01Settings),
+                      masterOut: e.target.checked,
+                      doubleOut: e.target.checked ? false : (s as X01Settings).doubleOut,
+                    }))
+                  }
+                />
+                Master-out
+              </label>
+            </div>
+            {invalid ? <div className="help" style={{ color: 'var(--bad)' }}>
+              Double-out and Master-out can’t both be enabled.
+            </div> : null}
+          </div>
+        </>
+      ) : (
+        <div className="col" style={{ gap: 10 }}>
+          <div className="help">Around the Board uses per-dart progression from 1 through bull.</div>
           <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
             <input
               type="checkbox"
-              checked={draft.doubleOut}
+              checked={draft.advanceByMultiplier}
               disabled={locked}
               onChange={(e) =>
-                setDraft((s) => ({
-                  ...s,
-                  doubleOut: e.target.checked,
-                  masterOut: e.target.checked ? false : s.masterOut,
-                }))
+                setDraft((s) => ({ ...(s as AroundSettings), advanceByMultiplier: e.target.checked }))
               }
             />
-            Double-out
-          </label>
-          <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={draft.masterOut}
-              disabled={locked}
-              onChange={(e) =>
-                setDraft((s) => ({
-                  ...s,
-                  masterOut: e.target.checked,
-                  doubleOut: e.target.checked ? false : s.doubleOut,
-                }))
-              }
-            />
-            Master-out
+            Double/triple advances 2/3 steps
           </label>
         </div>
-        {invalid ? <div className="help" style={{ color: 'var(--bad)' }}>
-          Double-out and Master-out can’t both be enabled.
-        </div> : null}
-      </div>
+      )}
 
       <button className="btn" disabled={locked || invalid} onClick={() => onChange(draft)}>
         Save settings
       </button>
     </div>
   )
+}
+
+function clampInt(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback
+  const n = Math.trunc(value)
+  if (n < min) return min
+  if (n > max) return max
+  return n
 }
 
 function LobbyNameEditor({

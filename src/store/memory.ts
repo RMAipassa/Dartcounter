@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { GameRuleError } from '../game/errors'
-import type { Player, PlayerId, X01MatchState, X01Settings } from '../game/types'
+import type { GameSettings, Player, PlayerId, X01MatchState } from '../game/types'
 
 export type RoomCode = string
 
@@ -43,7 +43,7 @@ function randomRoomCode(): RoomCode {
   return out
 }
 
-export function createRoom(args: { hostName: string; settings: X01Settings }): RoomState {
+export function createRoom(args: { hostName: string; settings: GameSettings }): RoomState {
   const now = Date.now()
   let code = randomRoomCode()
   while (rooms.has(code)) code = randomRoomCode()

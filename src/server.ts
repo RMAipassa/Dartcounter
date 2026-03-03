@@ -26,7 +26,8 @@ import {
 } from './auth/store'
 import { getGlobalRecords, getUserStats, recordFinishedMatch } from './auth/stats'
 import { GameRuleError } from './game/errors'
-import type { Dart, TurnInput, TurnRecord, X01Settings } from './game/types'
+import type { AroundSettings, Dart, GameSettings, TurnInput, TurnRecord, X01Settings } from './game/types'
+import { computeAroundLegSnapshot, validateAroundSettings } from './game/around'
 import { AutodartsService } from './integrations/autodarts'
 import type { AutodartsDartEvent } from './integrations/autodarts'
 import type { AutodartsRuntimeMode } from './integrations/autodarts'
@@ -53,6 +54,44 @@ function randomId(bytes: number): string {
 function bearerTokenFromReq(req: express.Request): string | null {
   const auth = req.header('authorization') ?? ''
   return auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : null
+}
+
+function withNamesForGlobalMode(mode: {
+  allTime: {
+    mostWins: { userId: string; value: number } | null
+    highestCheckout: { userId: string; value: number } | null
+    highestScore: { userId: string; value: number } | null
+    bestThreeDartAverage: { userId: string; value: number } | null
+  }
+  lastTen: {
+    mostWins: { userId: string; value: number } | null
+    highestCheckout: { userId: string; value: number } | null
+    highestScore: { userId: string; value: number } | null
+    bestThreeDartAverage: { userId: string; value: number } | null
+  }
+}) {
+  const withName = (record: { userId: string; value: number } | null) =>
+    record
+      ? {
+          ...record,
+          displayName: getUserById(record.userId)?.displayName ?? null,
+        }
+      : null
+
+  return {
+    allTime: {
+      mostWins: withName(mode.allTime.mostWins),
+      highestCheckout: withName(mode.allTime.highestCheckout),
+      highestScore: withName(mode.allTime.highestScore),
+      bestThreeDartAverage: withName(mode.allTime.bestThreeDartAverage),
+    },
+    lastTen: {
+      mostWins: withName(mode.lastTen.mostWins),
+      highestCheckout: withName(mode.lastTen.highestCheckout),
+      highestScore: withName(mode.lastTen.highestScore),
+      bestThreeDartAverage: withName(mode.lastTen.bestThreeDartAverage),
+    },
+  }
 }
 
 function requireAuthedUser(req: express.Request): ReturnType<typeof getUserBySessionToken> {
@@ -437,57 +476,9 @@ app.get('/api/stats/me', (req, res) => {
 app.get('/api/stats/global', (_req, res) => {
   const records = getGlobalRecords()
   const withNames = {
-    allTime: {
-      mostWins: records.allTime.mostWins
-        ? {
-            ...records.allTime.mostWins,
-            displayName: getUserById(records.allTime.mostWins.userId)?.displayName ?? null,
-          }
-        : null,
-      highestCheckout: records.allTime.highestCheckout
-        ? {
-            ...records.allTime.highestCheckout,
-            displayName: getUserById(records.allTime.highestCheckout.userId)?.displayName ?? null,
-          }
-        : null,
-      highestScore: records.allTime.highestScore
-        ? {
-            ...records.allTime.highestScore,
-            displayName: getUserById(records.allTime.highestScore.userId)?.displayName ?? null,
-          }
-        : null,
-      bestThreeDartAverage: records.allTime.bestThreeDartAverage
-        ? {
-            ...records.allTime.bestThreeDartAverage,
-            displayName: getUserById(records.allTime.bestThreeDartAverage.userId)?.displayName ?? null,
-          }
-        : null,
-    },
-    lastTen: {
-      mostWins: records.lastTen.mostWins
-        ? {
-            ...records.lastTen.mostWins,
-            displayName: getUserById(records.lastTen.mostWins.userId)?.displayName ?? null,
-          }
-        : null,
-      highestCheckout: records.lastTen.highestCheckout
-        ? {
-            ...records.lastTen.highestCheckout,
-            displayName: getUserById(records.lastTen.highestCheckout.userId)?.displayName ?? null,
-          }
-        : null,
-      highestScore: records.lastTen.highestScore
-        ? {
-            ...records.lastTen.highestScore,
-            displayName: getUserById(records.lastTen.highestScore.userId)?.displayName ?? null,
-          }
-        : null,
-      bestThreeDartAverage: records.lastTen.bestThreeDartAverage
-        ? {
-            ...records.lastTen.bestThreeDartAverage,
-            displayName: getUserById(records.lastTen.bestThreeDartAverage.userId)?.displayName ?? null,
-          }
-        : null,
+    byMode: {
+      X01: withNamesForGlobalMode(records.byMode.X01),
+      AROUND: withNamesForGlobalMode(records.byMode.AROUND),
     },
     updatedAt: records.updatedAt,
   }
@@ -502,6 +493,9 @@ app.get('/api/stats/friends', (req, res) => {
     return
   }
 
+  const modeRaw = String(req.query.gameType ?? 'X01').toUpperCase()
+  const mode = modeRaw === 'AROUND' ? 'AROUND' : 'X01'
+
   const friendState = listFriendState(user.id)
   const ids = [user.id, ...friendState.friends.map((f) => f.user.userId)]
   const rows = ids
@@ -515,14 +509,17 @@ app.get('/api/stats/friends', (req, res) => {
         isYou: uid === user.id,
         allTime: stats.allTime,
         lastTen: stats.lastTen,
+        byMode: stats.byMode,
       }
     })
     .filter(Boolean)
     .sort((a: any, b: any) => {
+      const aMode = a.byMode?.[mode]?.allTime ?? a.allTime
+      const bMode = b.byMode?.[mode]?.allTime ?? b.allTime
       if (a.isYou && !b.isYou) return -1
       if (!a.isYou && b.isYou) return 1
-      if ((b.allTime.wins ?? 0) !== (a.allTime.wins ?? 0)) return (b.allTime.wins ?? 0) - (a.allTime.wins ?? 0)
-      return (b.allTime.threeDartAvg ?? 0) - (a.allTime.threeDartAvg ?? 0)
+      if ((bMode.wins ?? 0) !== (aMode.wins ?? 0)) return (bMode.wins ?? 0) - (aMode.wins ?? 0)
+      return (bMode.threeDartAvg ?? 0) - (aMode.threeDartAvg ?? 0)
     })
 
   res.status(200).json({ ok: true, rows })
@@ -612,6 +609,16 @@ const x01SettingsSchema = z.object({
   masterOut: z.boolean(),
 })
 
+const aroundSettingsSchema = z.object({
+  gameType: z.literal('AROUND'),
+  legsToWin: z.number().int().min(1).max(99),
+  setsEnabled: z.boolean(),
+  setsToWin: z.number().int().min(0).max(99),
+  advanceByMultiplier: z.boolean(),
+})
+
+const gameSettingsSchema = z.union([x01SettingsSchema, aroundSettingsSchema])
+
 const challengeMatchSettings: X01Settings = {
   gameType: 'X01',
   startScore: 501,
@@ -639,7 +646,7 @@ const joinSchema = z.object({
 const createSchema = z.object({
   name: z.string().trim().min(1).max(32),
   authToken: z.string().trim().min(1).max(256).optional(),
-  settings: x01SettingsSchema,
+  settings: gameSettingsSchema,
   title: z.string().trim().min(0).max(48).optional(),
   isPublic: z.boolean().optional(),
 })
@@ -656,7 +663,7 @@ const reorderSchema = z.object({
 
 const updateSettingsSchema = z.object({
   hostSecret: z.string().trim().min(1).max(128),
-  settings: x01SettingsSchema,
+  settings: gameSettingsSchema,
 })
 
 const startSchema = z.object({
@@ -792,9 +799,172 @@ function roomChannel(code: string): string {
   return `room:${code}`
 }
 
+function validateGameSettings(settings: GameSettings): void {
+  if (settings.gameType === 'AROUND') {
+    validateAroundSettings(settings as AroundSettings)
+    return
+  }
+  validateX01Settings(settings as X01Settings)
+}
+
+function computeMatchSnapshotForRoom(match: any) {
+  if (match.settings.gameType === 'AROUND') {
+    const leg = match.legs[match.currentLegIndex]
+    if (!leg) throw new GameRuleError('INVALID_STATE', 'Current leg does not exist')
+    const legSnap = computeAroundLegSnapshot({
+      settings: match.settings as AroundSettings,
+      players: match.players,
+      startingPlayerIndex: leg.startingPlayerIndex,
+      turns: leg.turns,
+      legNumber: leg.legNumber,
+      setNumber: leg.setNumber,
+    })
+    return {
+      status: match.status,
+      settings: match.settings,
+      lockedAt: match.lockedAt,
+      players: [...match.players].sort((a, b) => a.orderIndex - b.orderIndex),
+      currentLegIndex: match.currentLegIndex,
+      legsWonByPlayerId: match.legsWonByPlayerId,
+      legsWonInCurrentSetByPlayerId: match.legsWonInCurrentSetByPlayerId,
+      setsWonByPlayerId: match.setsWonByPlayerId,
+      currentSetNumber: match.currentSetNumber,
+      currentLeg: {
+        legNumber: legSnap.legNumber,
+        setNumber: legSnap.setNumber,
+        startingPlayerIndex: legSnap.startingPlayerIndex,
+        currentPlayerIndex: legSnap.currentPlayerIndex,
+        winnerPlayerId: legSnap.winnerPlayerId,
+      },
+      leg: legSnap,
+    }
+  }
+
+  return computeMatchSnapshot(match)
+}
+
+function applyTurnForCurrentMode(args: {
+  settings: GameSettings
+  remainingBefore: number
+  isInBefore: boolean
+  input: TurnInput
+}) {
+  if (args.settings.gameType === 'AROUND') {
+    return applyAroundTurnForServer({ settings: args.settings, targetBefore: args.remainingBefore, input: args.input })
+  }
+  return applyX01Turn({
+    remainingBefore: args.remainingBefore,
+    isInBefore: args.isInBefore,
+    input: args.input,
+    settings: args.settings as X01Settings,
+  })
+}
+
+function applyAroundTurnForServer(args: { settings: AroundSettings; targetBefore: number; input: TurnInput }) {
+  const targetBefore = args.targetBefore
+  const advanceByMultiplier = Boolean(args.settings.advanceByMultiplier)
+  const nextTarget = (current: number) => {
+    const targets = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 25]
+    const idx = targets.findIndex((t) => t === current)
+    if (idx < 0) return 1
+    if (idx >= targets.length - 1) return 0
+    return targets[idx + 1]
+  }
+
+  const advanceTarget = (current: number, steps: number) => {
+    let next = current
+    const count = Number.isInteger(steps) && steps > 0 ? steps : 1
+    for (let i = 0; i < count; i++) {
+      next = nextTarget(next)
+      if (next === 0) break
+    }
+    return next
+  }
+
+  const isHit = (dart: Dart, target: number) => {
+    if (target === 25) return dart.segment === 25 && (dart.multiplier === 1 || dart.multiplier === 2)
+    return dart.segment === target && dart.multiplier > 0
+  }
+
+  if (targetBefore === 0) {
+    return {
+      scoreTotal: 0,
+      isBust: false,
+      didCheckout: true,
+      checkoutDartIndex: null,
+      remainingBefore: 0,
+      remainingAfter: 0,
+      isInBefore: true,
+      isInAfter: true,
+    }
+  }
+
+  const perDartInput = args.input.mode === 'PER_DART' ? args.input.darts : args.input.darts
+  if (perDartInput) {
+    let target = targetBefore
+    let scoreTotal = 0
+    let checkoutDartIndex: number | null = null
+
+    for (let i = 0; i < perDartInput.length; i++) {
+      if (target === 0) break
+      const d = perDartInput[i]
+      if (!isHit(d, target)) continue
+      scoreTotal += d.segment === 25 ? (d.multiplier === 2 ? 50 : 25) : d.segment * d.multiplier
+      const steps = advanceByMultiplier ? Math.max(1, d.multiplier) : 1
+      target = advanceTarget(target, steps)
+      if (target === 0) {
+        checkoutDartIndex = i
+        break
+      }
+    }
+
+    if (args.input.mode === 'TOTAL') {
+      const derivedTotal = perDartInput.reduce(
+        (sum, d) => sum + (d.segment === 25 ? (d.multiplier === 2 ? 50 : 25) : d.segment * d.multiplier),
+        0,
+      )
+      if (derivedTotal !== args.input.total) {
+        throw new GameRuleError('TURN_TOTAL_MISMATCH', 'Provided total does not match darts sum', {
+          total: args.input.total,
+          derived: derivedTotal,
+        })
+      }
+    }
+
+    return {
+      scoreTotal,
+      isBust: false,
+      didCheckout: target === 0,
+      checkoutDartIndex,
+      remainingBefore: targetBefore,
+      remainingAfter: target,
+      isInBefore: true,
+      isInAfter: true,
+    }
+  }
+
+  if (args.input.mode !== 'TOTAL') {
+    throw new GameRuleError('INVALID_TURN', 'Invalid around turn input mode', { mode: args.input.mode })
+  }
+
+  const t = args.input.total
+  const hit = targetBefore === 25 ? t === 25 || t === 50 : t === targetBefore || t === targetBefore * 2 || t === targetBefore * 3
+  const after = hit ? nextTarget(targetBefore) : targetBefore
+  return {
+    scoreTotal: hit ? t : 0,
+    isBust: false,
+    didCheckout: after === 0,
+    checkoutDartIndex: null,
+    remainingBefore: targetBefore,
+    remainingAfter: after,
+    isInBefore: true,
+    isInAfter: true,
+  }
+}
+
 function emitSnapshot(code: string) {
   const room = getRoom(code)
-  const matchSnapshot = computeMatchSnapshot(room.match)
+  const matchSnapshot = computeMatchSnapshotForRoom(room.match)
   const autodartsState = autodarts.getRoomState(code)
   const currentPlayerId =
     matchSnapshot.leg.currentPlayerIndex >= 0 ? matchSnapshot.players[matchSnapshot.leg.currentPlayerIndex]?.id ?? null : null
@@ -853,7 +1023,13 @@ function syncRoomAutodartsBinding(roomCode: string): void {
     return
   }
 
-  const snap = computeMatchSnapshot(room.match)
+  if (room.match.settings.gameType !== 'X01') {
+    room.autodartsBoundUserId = null
+    autodarts.unbindRoom(roomCode)
+    return
+  }
+
+  const snap = computeMatchSnapshotForRoom(room.match)
   const currentIdx = snap.leg.currentPlayerIndex
   if (currentIdx < 0) {
     room.autodartsBoundUserId = null
@@ -915,7 +1091,7 @@ function submitTurnForCurrentPlayer(args: {
   if (room.match.status !== 'LIVE') throw new GameRuleError('NOT_LIVE', 'Game is not live')
   if (room.match.players.length < 1) throw new GameRuleError('NO_PLAYERS', 'No players')
 
-  const snap = computeMatchSnapshot(room.match)
+  const snap = computeMatchSnapshotForRoom(room.match)
   const currentIdx = snap.leg.currentPlayerIndex
   if (currentIdx < 0) throw new GameRuleError('LEG_FINISHED', 'Leg is finished')
   const currentPlayerId = snap.players[currentIdx].id
@@ -926,11 +1102,11 @@ function submitTurnForCurrentPlayer(args: {
   }
 
   // Validate against current player state before mutating server state
-  const applied = applyX01Turn({
+  const applied = applyTurnForCurrentMode({
+    settings: room.match.settings,
     remainingBefore: currentPlayerState.remaining,
     isInBefore: currentPlayerState.isIn,
     input: args.input,
-    settings: room.match.settings,
   })
 
   // Lock settings on first accepted turn
@@ -950,7 +1126,7 @@ function submitTurnForCurrentPlayer(args: {
   let finishedSetNumber: number | null = null
 
   // Recompute to see if leg finished and advance
-  const nextSnap = computeMatchSnapshot(room.match)
+  const nextSnap = computeMatchSnapshotForRoom(room.match)
   const winnerId = nextSnap.leg.winnerPlayerId
   if (winnerId) {
     finishedLegNumber = leg.legNumber
@@ -1029,8 +1205,9 @@ function applyAutodartsDart(event: AutodartsDartEvent): {
   const room = getRoom(event.roomCode)
   if (room.match.status !== 'LIVE') return { accepted: false, bufferedDarts: [], playerId: null, ready: false, reason: null }
   if (room.match.players.length < 1) return { accepted: false, bufferedDarts: [], playerId: null, ready: false, reason: null }
+  if (room.match.settings.gameType !== 'X01') return { accepted: false, bufferedDarts: [], playerId: null, ready: false, reason: null }
 
-  const snap = computeMatchSnapshot(room.match)
+  const snap = computeMatchSnapshotForRoom(room.match)
   const currentIdx = snap.leg.currentPlayerIndex
   if (currentIdx < 0) return { accepted: false, bufferedDarts: [], playerId: null, ready: false, reason: null }
 
@@ -1076,11 +1253,11 @@ function applyAutodartsDart(event: AutodartsDartEvent): {
 
   let applied
   try {
-    applied = applyX01Turn({
+    applied = applyTurnForCurrentMode({
+      settings: room.match.settings,
       remainingBefore: currentPlayerState.remaining,
       isInBefore: currentPlayerState.isIn,
       input,
-      settings: room.match.settings,
     })
   } catch {
     autodartsPendingTurnByRoomCode.delete(event.roomCode)
@@ -1220,7 +1397,10 @@ function removePlayerByName(roomCode: string, displayName: string): void {
   }
 }
 
-function toTurnInput(args: { settings: X01Settings; total?: number; darts?: Dart[] }): TurnInput {
+function toTurnInput(args: { settings: GameSettings; total?: number; darts?: Dart[] }): TurnInput {
+  if (args.settings.gameType === 'AROUND' && typeof args.total === 'number' && !args.darts) {
+    throw new GameRuleError('NEED_DARTS', 'Around mode needs per-dart input (or include darts details)')
+  }
   if (typeof args.total === 'number') {
     return args.darts ? { mode: 'TOTAL', total: args.total, darts: args.darts } : { mode: 'TOTAL', total: args.total }
   }
@@ -1584,7 +1764,7 @@ io.on('connection', (socket) => {
   socket.on('room:create', (raw, cb) => {
     try {
       const { name, authToken, settings, title, isPublic } = createSchema.parse(raw)
-      validateX01Settings(settings)
+      validateGameSettings(settings)
       const auth = resolveAuthIdentity(authToken)
       const userId = auth?.userId
       const effectiveName = auth?.displayName ?? name
@@ -1873,7 +2053,7 @@ io.on('connection', (socket) => {
   socket.on('lobby:updateSettings', (raw, cb) => {
     try {
       const { hostSecret, settings } = updateSettingsSchema.parse(raw)
-      validateX01Settings(settings)
+      validateGameSettings(settings)
       const code = currentRoomCode()
 
       const room = getRoom(code)
@@ -1927,7 +2107,7 @@ io.on('connection', (socket) => {
       const code = currentRoomCode()
 
       const room = getRoom(code)
-      const snap = computeMatchSnapshot(room.match)
+      const snap = computeMatchSnapshotForRoom(room.match)
       const currentIdx = snap.leg.currentPlayerIndex
       if (currentIdx < 0) throw new GameRuleError('LEG_FINISHED', 'Leg is finished')
       const currentPlayerId = snap.players[currentIdx].id

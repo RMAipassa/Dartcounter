@@ -21,6 +21,7 @@ type MeStats = {
     wins: number
     losses: number
     winRate: number | null
+    dartsThrown: number
     threeDartAvg: number | null
     checkoutRate: number | null
     highestCheckout: number | null
@@ -31,12 +32,14 @@ type MeStats = {
     wins: number
     losses: number
     winRate: number | null
+    dartsThrown: number
     threeDartAvg: number | null
     checkoutRate: number | null
     highestCheckout: number | null
     highestScore: number
   }
   history: Array<{
+    gameType: 'X01' | 'AROUND'
     roomCode: string
     finishedAt: number
     result: 'WIN' | 'LOSS'
@@ -44,20 +47,78 @@ type MeStats = {
     highestCheckout: number | null
     highestScore: number
   }>
+  byMode: {
+    X01: {
+      allTime: {
+        totalGames: number
+        wins: number
+        losses: number
+        winRate: number | null
+        dartsThrown: number
+        threeDartAvg: number | null
+      }
+      lastTen: {
+        games: number
+        wins: number
+        losses: number
+        winRate: number | null
+        dartsThrown: number
+        threeDartAvg: number | null
+      }
+      history: Array<{ roomCode: string; finishedAt: number; result: 'WIN' | 'LOSS' }>
+    }
+    AROUND: {
+      allTime: {
+        totalGames: number
+        wins: number
+        losses: number
+        winRate: number | null
+        dartsThrown: number
+        threeDartAvg: number | null
+      }
+      lastTen: {
+        games: number
+        wins: number
+        losses: number
+        winRate: number | null
+        dartsThrown: number
+        threeDartAvg: number | null
+      }
+      history: Array<{ roomCode: string; finishedAt: number; result: 'WIN' | 'LOSS'; dartsThrown: number }>
+    }
+  }
 }
 
 type GlobalRecords = {
-  allTime: {
-    mostWins: { userId: string; value: number; displayName?: string | null } | null
-    highestCheckout: { userId: string; value: number; displayName?: string | null } | null
-    highestScore: { userId: string; value: number; displayName?: string | null } | null
-    bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
-  }
-  lastTen: {
-    mostWins: { userId: string; value: number; displayName?: string | null } | null
-    highestCheckout: { userId: string; value: number; displayName?: string | null } | null
-    highestScore: { userId: string; value: number; displayName?: string | null } | null
-    bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
+  byMode: {
+    X01: {
+      allTime: {
+        mostWins: { userId: string; value: number; displayName?: string | null } | null
+        highestCheckout: { userId: string; value: number; displayName?: string | null } | null
+        highestScore: { userId: string; value: number; displayName?: string | null } | null
+        bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
+      }
+      lastTen: {
+        mostWins: { userId: string; value: number; displayName?: string | null } | null
+        highestCheckout: { userId: string; value: number; displayName?: string | null } | null
+        highestScore: { userId: string; value: number; displayName?: string | null } | null
+        bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
+      }
+    }
+    AROUND: {
+      allTime: {
+        mostWins: { userId: string; value: number; displayName?: string | null } | null
+        highestCheckout: { userId: string; value: number; displayName?: string | null } | null
+        highestScore: { userId: string; value: number; displayName?: string | null } | null
+        bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
+      }
+      lastTen: {
+        mostWins: { userId: string; value: number; displayName?: string | null } | null
+        highestCheckout: { userId: string; value: number; displayName?: string | null } | null
+        highestScore: { userId: string; value: number; displayName?: string | null } | null
+        bestThreeDartAverage: { userId: string; value: number; displayName?: string | null } | null
+      }
+    }
   }
 }
 
@@ -85,6 +146,7 @@ type FriendLeaderboardRow = {
     highestCheckout: number | null
     highestScore: number
   }
+  byMode?: any
 }
 
 type BridgeHealth = {
@@ -148,6 +210,7 @@ export default function AccountPage() {
   const [incomingChallenges, setIncomingChallenges] = useState<IncomingChallenge[]>([])
   const [incomingInvites, setIncomingInvites] = useState<IncomingRoomInvite[]>([])
   const [uiDensity, setUiDensity] = useState<'spacious' | 'compact'>('spacious')
+  const [statsModeView, setStatsModeView] = useState<'X01' | 'AROUND'>('X01')
 
   useEffect(() => {
     void refreshMe(serverUrl, setMe, setStats)
@@ -175,10 +238,10 @@ export default function AccountPage() {
     const socket = getSocket(serverUrl)
     void socket.emitWithAck('social:identify', { authToken: token, token })
     void refreshFriends(serverUrl, setFriends)
-    void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+    void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard, statsModeView)
     void refreshIncomingChallenges(serverUrl, setIncomingChallenges)
     void refreshIncomingInvites(serverUrl, setIncomingInvites)
-  }, [me, serverUrl])
+  }, [me, serverUrl, statsModeView])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -293,7 +356,7 @@ export default function AccountPage() {
       if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Could not send friend request')
       setFriendIdentityInput('')
       await refreshFriends(serverUrl, setFriends)
-      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard, statsModeView)
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -318,7 +381,7 @@ export default function AccountPage() {
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Could not respond to friend request')
       await refreshFriends(serverUrl, setFriends)
-      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard, statsModeView)
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -343,7 +406,7 @@ export default function AccountPage() {
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Could not remove friend')
       await refreshFriends(serverUrl, setFriends)
-      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)
+      await refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard, statsModeView)
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -732,6 +795,7 @@ export default function AccountPage() {
               <span className="pill">Games: {stats.allTime.totalGames}</span>
               <span className="pill">W/L: {stats.allTime.wins}/{stats.allTime.losses}</span>
               <span className="pill">Win%: {stats.allTime.winRate ?? '-'}</span>
+              <span className="pill">Darts: {stats.allTime.dartsThrown}</span>
               <span className="pill">Avg: {stats.allTime.threeDartAvg ?? '-'}</span>
               <span className="pill">CO%: {stats.allTime.checkoutRate ?? '-'}</span>
               <span className="pill">Hi finish: {stats.allTime.highestCheckout ?? '-'}</span>
@@ -745,6 +809,7 @@ export default function AccountPage() {
               <span className="pill">Games: {stats.lastTen.games}</span>
               <span className="pill">W/L: {stats.lastTen.wins}/{stats.lastTen.losses}</span>
               <span className="pill">Win%: {stats.lastTen.winRate ?? '-'}</span>
+              <span className="pill">Darts: {stats.lastTen.dartsThrown}</span>
               <span className="pill">Avg: {stats.lastTen.threeDartAvg ?? '-'}</span>
               <span className="pill">CO%: {stats.lastTen.checkoutRate ?? '-'}</span>
               <span className="pill">Hi finish: {stats.lastTen.highestCheckout ?? '-'}</span>
@@ -765,6 +830,45 @@ export default function AccountPage() {
                 <span className="pill">Avg: {g.threeDartAvg ?? '-'}</span>
                 <span className="pill">Hi finish: {g.highestCheckout ?? '-'}</span>
                 <span className="pill">Hi score: {g.highestScore}</span>
+                <span className="help">{new Date(g.finishedAt).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {stats?.byMode?.AROUND ? (
+        <div className="grid2">
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ fontSize: 16, marginBottom: 8 }}>Around all-time</div>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <span className="pill">Games: {stats.byMode.AROUND.allTime.totalGames}</span>
+              <span className="pill">W/L: {stats.byMode.AROUND.allTime.wins}/{stats.byMode.AROUND.allTime.losses}</span>
+              <span className="pill">Win%: {stats.byMode.AROUND.allTime.winRate ?? '-'}</span>
+              <span className="pill">Darts: {stats.byMode.AROUND.allTime.dartsThrown}</span>
+            </div>
+          </div>
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ fontSize: 16, marginBottom: 8 }}>Around last 10</div>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <span className="pill">Games: {stats.byMode.AROUND.lastTen.games}</span>
+              <span className="pill">W/L: {stats.byMode.AROUND.lastTen.wins}/{stats.byMode.AROUND.lastTen.losses}</span>
+              <span className="pill">Win%: {stats.byMode.AROUND.lastTen.winRate ?? '-'}</span>
+              <span className="pill">Darts: {stats.byMode.AROUND.lastTen.dartsThrown}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {stats?.byMode?.AROUND?.history?.length ? (
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontSize: 16, marginBottom: 8 }}>Around recent history</div>
+          <div className="col">
+            {stats.byMode.AROUND.history.map((g, idx) => (
+              <div key={`${g.roomCode}-${g.finishedAt}-${idx}`} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="pill">{g.result}</span>
+                <span className="pill">Room: {g.roomCode}</span>
+                <span className="pill">Darts: {g.dartsThrown ?? '-'}</span>
                 <span className="help">{new Date(g.finishedAt).toLocaleString()}</span>
               </div>
             ))}
@@ -795,20 +899,30 @@ export default function AccountPage() {
 
       {records ? (
         <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 16, marginBottom: 8 }}>Global records</div>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 16 }}>Global records</div>
+            <div className="row" style={{ gap: 8 }}>
+              <button className={statsModeView === 'X01' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setStatsModeView('X01')}>
+                X01
+              </button>
+              <button className={statsModeView === 'AROUND' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setStatsModeView('AROUND')}>
+                Around
+              </button>
+            </div>
+          </div>
           <div className="help">All time</div>
           <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
-            <span className="pill">Most wins: {recordLabel(records.allTime.mostWins)}</span>
-            <span className="pill">Highest checkout: {recordLabel(records.allTime.highestCheckout)}</span>
-            <span className="pill">Highest score: {recordLabel(records.allTime.highestScore)}</span>
-            <span className="pill">Best avg: {recordLabel(records.allTime.bestThreeDartAverage)}</span>
+            <span className="pill">Most wins: {recordLabel(records.byMode[statsModeView].allTime.mostWins)}</span>
+            <span className="pill">Highest checkout: {recordLabel(records.byMode[statsModeView].allTime.highestCheckout)}</span>
+            <span className="pill">Highest score: {recordLabel(records.byMode[statsModeView].allTime.highestScore)}</span>
+            <span className="pill">Best avg: {recordLabel(records.byMode[statsModeView].allTime.bestThreeDartAverage)}</span>
           </div>
           <div className="help" style={{ marginTop: 10 }}>Last 10 games</div>
           <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
-            <span className="pill">Most wins: {recordLabel(records.lastTen.mostWins)}</span>
-            <span className="pill">Highest checkout: {recordLabel(records.lastTen.highestCheckout)}</span>
-            <span className="pill">Highest score: {recordLabel(records.lastTen.highestScore)}</span>
-            <span className="pill">Best avg: {recordLabel(records.lastTen.bestThreeDartAverage)}</span>
+            <span className="pill">Most wins: {recordLabel(records.byMode[statsModeView].lastTen.mostWins)}</span>
+            <span className="pill">Highest checkout: {recordLabel(records.byMode[statsModeView].lastTen.highestCheckout)}</span>
+            <span className="pill">Highest score: {recordLabel(records.byMode[statsModeView].lastTen.highestScore)}</span>
+            <span className="pill">Best avg: {recordLabel(records.byMode[statsModeView].lastTen.bestThreeDartAverage)}</span>
           </div>
         </div>
       ) : null}
@@ -817,8 +931,16 @@ export default function AccountPage() {
         <div className="card" style={{ padding: 16 }}>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: 16 }}>Friends leaderboard</div>
-            <button className="btn" disabled={busy} onClick={() => void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard)}>
+            <button className="btn" disabled={busy} onClick={() => void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard, statsModeView)}>
               Refresh leaderboard
+            </button>
+          </div>
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <button className={statsModeView === 'X01' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setStatsModeView('X01')}>
+              X01
+            </button>
+            <button className={statsModeView === 'AROUND' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setStatsModeView('AROUND')}>
+              Around
             </button>
           </div>
           <div className="col" style={{ marginTop: 8 }}>
@@ -826,11 +948,11 @@ export default function AccountPage() {
             {friendsLeaderboard.map((row) => (
               <div key={row.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
                 <span className="pill" style={{ color: row.isYou ? 'var(--accent)' : 'var(--text)' }}>{row.isYou ? `${row.displayName} (You)` : row.displayName}</span>
-                <span className="pill">All-time W/L: {row.allTime.wins}/{row.allTime.losses}</span>
-                <span className="pill">All-time Avg: {row.allTime.threeDartAvg ?? '-'}</span>
-                <span className="pill">Last10 W/L: {row.lastTen.wins}/{row.lastTen.losses}</span>
-                <span className="pill">Last10 Avg: {row.lastTen.threeDartAvg ?? '-'}</span>
-                <span className="pill">Hi CO: {row.allTime.highestCheckout ?? '-'}</span>
+                <span className="pill">All-time W/L: {modeStats(row, statsModeView).allTime.wins}/{modeStats(row, statsModeView).allTime.losses}</span>
+                {statsModeView === 'X01' ? <span className="pill">All-time Avg: {modeStats(row, statsModeView).allTime.threeDartAvg ?? '-'}</span> : <span className="pill">All-time Darts: {modeStats(row, statsModeView).allTime.dartsThrown}</span>}
+                <span className="pill">Last10 W/L: {modeStats(row, statsModeView).lastTen.wins}/{modeStats(row, statsModeView).lastTen.losses}</span>
+                {statsModeView === 'X01' ? <span className="pill">Last10 Avg: {modeStats(row, statsModeView).lastTen.threeDartAvg ?? '-'}</span> : <span className="pill">Last10 Darts: {modeStats(row, statsModeView).lastTen.dartsThrown}</span>}
+                {statsModeView === 'X01' ? <span className="pill">Hi CO: {modeStats(row, statsModeView).allTime.highestCheckout ?? '-'}</span> : null}
               </div>
             ))}
           </div>
@@ -935,6 +1057,7 @@ async function refreshFriends(serverUrl: string, setFriends: (f: FriendsState | 
 async function refreshFriendsLeaderboard(
   serverUrl: string,
   setRows: (rows: FriendLeaderboardRow[]) => void,
+  gameType: 'X01' | 'AROUND',
 ): Promise<void> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
   if (!token) {
@@ -942,7 +1065,7 @@ async function refreshFriendsLeaderboard(
     return
   }
 
-  const res = await fetch(`${serverUrl}/api/stats/friends`, {
+  const res = await fetch(`${serverUrl}/api/stats/friends?gameType=${gameType}`, {
     headers: {
       authorization: `Bearer ${token}`,
     },
@@ -953,6 +1076,15 @@ async function refreshFriendsLeaderboard(
     return
   }
   setRows(data.rows as FriendLeaderboardRow[])
+}
+
+function modeStats(row: FriendLeaderboardRow, gameType: 'X01' | 'AROUND'): any {
+  if (row.byMode?.[gameType]) return row.byMode[gameType]
+  return {
+    allTime: row.allTime,
+    lastTen: row.lastTen,
+    history: [],
+  }
 }
 
 async function refreshIncomingChallenges(

@@ -1,10 +1,12 @@
-import type { PlayerId, TurnRecord, X01LegSnapshot, X01MatchState } from './types'
+import type { AroundSettings, PlayerId, TurnRecord, X01LegSnapshot, X01MatchState, X01Settings } from './types'
+import { computeAroundLegSnapshot } from './around'
 import { computeX01LegSnapshot, dartValue } from './x01'
 
 export type PlayerStats = {
   playerId: PlayerId
   legsWon: number
   setsWon: number
+  dartsThrown: number
   threeDartAvg: number | null
   first9Avg: number | null
   checkoutRate: number | null
@@ -45,9 +47,22 @@ function* iterateDartPoints(turn: TurnRecord, scoreTotal: number): Generator<num
 }
 
 function computeAllLegSnapshots(match: X01MatchState): X01LegSnapshot[] {
+  if (match.settings.gameType === 'AROUND') {
+    return match.legs.map((leg) =>
+      computeAroundLegSnapshot({
+        settings: match.settings as AroundSettings,
+        players: match.players,
+        startingPlayerIndex: leg.startingPlayerIndex,
+        turns: leg.turns,
+        legNumber: leg.legNumber,
+        setNumber: leg.setNumber,
+      }),
+    )
+  }
+
   return match.legs.map((leg) =>
     computeX01LegSnapshot({
-      settings: match.settings,
+      settings: match.settings as X01Settings,
       players: match.players,
       startingPlayerIndex: leg.startingPlayerIndex,
       turns: leg.turns,
@@ -60,12 +75,14 @@ function computeAllLegSnapshots(match: X01MatchState): X01LegSnapshot[] {
 export function computePlayerStats(match: X01MatchState): Record<PlayerId, PlayerStats> {
   const out: Record<PlayerId, PlayerStats> = {}
   const legSnaps = computeAllLegSnapshots(match)
+  const isAround = match.settings.gameType === 'AROUND'
 
   for (const p of match.players) {
     out[p.id] = {
       playerId: p.id,
       legsWon: match.legsWonByPlayerId[p.id] ?? 0,
       setsWon: match.setsWonByPlayerId[p.id] ?? 0,
+      dartsThrown: 0,
       threeDartAvg: null,
       first9Avg: null,
       checkoutRate: null,
@@ -130,17 +147,17 @@ export function computePlayerStats(match: X01MatchState): Record<PlayerId, Playe
       stats.highestScore = Math.max(stats.highestScore, t.scoreTotal)
 
       // Checkout rate
-      if (t.isInBefore && t.remainingBefore <= 170) {
+      if (!isAround && t.isInBefore && t.remainingBefore <= 170) {
         stats.checkoutAttempts += 1
         if (t.didCheckout) stats.checkouts += 1
       }
-      if (t.didCheckout) {
+      if (!isAround && t.didCheckout) {
         const finish = t.remainingBefore
         stats.highestFinish = stats.highestFinish == null ? finish : Math.max(stats.highestFinish, finish)
       }
 
       // First 9 avg: track first 9 darts per leg.
-      if (legFirst9Darts[t.playerId] < 9) {
+      if (!isAround && legFirst9Darts[t.playerId] < 9) {
         if (t.input.mode === 'PER_DART' || (t.input.mode === 'TOTAL' && t.input.darts)) {
           for (const dp of iterateDartPoints(t, t.scoreTotal)) {
             if (legFirst9Darts[t.playerId] >= 9) break
@@ -170,16 +187,17 @@ export function computePlayerStats(match: X01MatchState): Record<PlayerId, Playe
     const stats = out[p.id]
     const darts = totalDartsByPlayer[p.id]
     const pts = totalPointsByPlayer[p.id]
-    if (darts > 0) {
+    stats.dartsThrown = darts
+    if (!isAround && darts > 0) {
       stats.threeDartAvg = Number((pts / (darts / 3)).toFixed(2))
     }
 
-    if (first9DartsByPlayer[p.id] > 0) {
+    if (!isAround && first9DartsByPlayer[p.id] > 0) {
       // First 9 darts => 3 "visits" of 3 darts
       stats.first9Avg = Number((first9PointsByPlayer[p.id] / 3).toFixed(2))
     }
 
-    if (stats.checkoutAttempts > 0) {
+    if (!isAround && stats.checkoutAttempts > 0) {
       stats.checkoutRate = Number(((stats.checkouts / stats.checkoutAttempts) * 100).toFixed(1))
     }
   }

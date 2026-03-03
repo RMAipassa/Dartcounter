@@ -1,11 +1,12 @@
 import fs from 'fs'
 import path from 'path'
-import type { PlayerId, X01MatchState } from '../game/types'
+import type { GameType, PlayerId, X01MatchState } from '../game/types'
 import type { PlayerStats } from '../game/types'
 
 type GameResult = 'WIN' | 'LOSS'
 
 type GameSummary = {
+  gameType: GameType
   roomCode: string
   finishedAt: number
   result: GameResult
@@ -24,6 +25,11 @@ type GameSummary = {
 
 type UserAggregateStats = {
   userId: string
+  byMode: Record<GameType, ModeAggregateStats>
+  updatedAt: number
+}
+
+type ModeAggregateStats = {
   totalGames: number
   wins: number
   losses: number
@@ -37,23 +43,28 @@ type UserAggregateStats = {
   checkoutAttempts: number
   highestCheckout: number
   highestScore: number
-  updatedAt: number
   lastTenGames: GameSummary[]
 }
 
-type GlobalRecords = {
+type StatRecord = { userId: string; value: number } | null
+
+type GlobalModeRecords = {
   allTime: {
-    mostWins: { userId: string; value: number } | null
-    highestCheckout: { userId: string; value: number } | null
-    highestScore: { userId: string; value: number } | null
-    bestThreeDartAverage: { userId: string; value: number } | null
+    mostWins: StatRecord
+    highestCheckout: StatRecord
+    highestScore: StatRecord
+    bestThreeDartAverage: StatRecord
   }
   lastTen: {
-    mostWins: { userId: string; value: number } | null
-    highestCheckout: { userId: string; value: number } | null
-    highestScore: { userId: string; value: number } | null
-    bestThreeDartAverage: { userId: string; value: number } | null
+    mostWins: StatRecord
+    highestCheckout: StatRecord
+    highestScore: StatRecord
+    bestThreeDartAverage: StatRecord
   }
+}
+
+type GlobalRecords = {
+  byMode: Record<GameType, GlobalModeRecords>
   updatedAt: number
 }
 
@@ -68,6 +79,7 @@ export type UserStatsView = {
     wins: number
     losses: number
     winRate: number | null
+    dartsThrown: number
     legsWon: number
     legsLost: number
     setsWon: number
@@ -84,6 +96,7 @@ export type UserStatsView = {
     wins: number
     losses: number
     winRate: number | null
+    dartsThrown: number
     threeDartAvg: number | null
     checkouts: number
     checkoutAttempts: number
@@ -92,6 +105,14 @@ export type UserStatsView = {
     highestScore: number
   }
   history: GameSummary[]
+  byMode: Record<
+    GameType,
+    {
+      allTime: UserStatsView['allTime']
+      lastTen: UserStatsView['lastTen']
+      history: GameSummary[]
+    }
+  >
 }
 
 const statsFile = path.join(process.cwd(), 'data', 'user-stats.json')
@@ -105,6 +126,7 @@ export function recordFinishedMatch(args: {
   playerUserIdByPlayerId: Record<PlayerId, string>
 }): void {
   const finishedAt = Date.now()
+  const gameType: GameType = args.match.settings.gameType
   const totalLegs = args.match.legs.length
   const setsEnabled = args.match.settings.setsEnabled
 
@@ -126,6 +148,7 @@ export function recordFinishedMatch(args: {
     const won = setsEnabled ? setsWon === bestSets && setsWon > 0 : legsWon === bestLegs && legsWon > 0
 
     const game: GameSummary = {
+      gameType,
       roomCode: args.roomCode,
       finishedAt,
       result: won ? 'WIN' : 'LOSS',
@@ -135,29 +158,32 @@ export function recordFinishedMatch(args: {
       setsLost,
       dartsThrown,
       pointsScored,
-      threeDartAvg: ps.threeDartAvg,
-      checkouts: ps.checkouts,
-      checkoutAttempts: ps.checkoutAttempts,
-      highestCheckout: ps.highestFinish,
-      highestScore: ps.highestScore,
+      threeDartAvg: gameType === 'AROUND' ? null : ps.threeDartAvg,
+      checkouts: gameType === 'AROUND' ? 0 : ps.checkouts,
+      checkoutAttempts: gameType === 'AROUND' ? 0 : ps.checkoutAttempts,
+      highestCheckout: gameType === 'AROUND' ? null : ps.highestFinish,
+      highestScore: gameType === 'AROUND' ? 0 : ps.highestScore,
     }
 
     const current = db.users[userId] ?? emptyAggregate(userId)
-    current.totalGames += 1
-    if (won) current.wins += 1
-    else current.losses += 1
-    current.legsWon += legsWon
-    current.legsLost += legsLost
-    current.setsWon += setsWon
-    current.setsLost += setsLost
-    current.dartsThrown += dartsThrown
-    current.pointsScored += pointsScored
-    current.checkouts += ps.checkouts
-    current.checkoutAttempts += ps.checkoutAttempts
-    current.highestCheckout = Math.max(current.highestCheckout, ps.highestFinish ?? 0)
-    current.highestScore = Math.max(current.highestScore, ps.highestScore)
+    const mode = current.byMode[gameType]
+    mode.totalGames += 1
+    if (won) mode.wins += 1
+    else mode.losses += 1
+    mode.legsWon += legsWon
+    mode.legsLost += legsLost
+    mode.setsWon += setsWon
+    mode.setsLost += setsLost
+    mode.dartsThrown += dartsThrown
+    mode.pointsScored += pointsScored
+    if (gameType === 'X01') {
+      mode.checkouts += ps.checkouts
+      mode.checkoutAttempts += ps.checkoutAttempts
+      mode.highestCheckout = Math.max(mode.highestCheckout, ps.highestFinish ?? 0)
+      mode.highestScore = Math.max(mode.highestScore, ps.highestScore)
+    }
     current.updatedAt = finishedAt
-    current.lastTenGames = [game, ...current.lastTenGames].slice(0, 10)
+    mode.lastTenGames = [game, ...mode.lastTenGames].slice(0, 10)
     db.users[userId] = current
   }
 
@@ -167,27 +193,29 @@ export function recordFinishedMatch(args: {
 
 export function getUserStats(userId: string): UserStatsView {
   const current = db.users[userId] ?? emptyAggregate(userId)
-  const allGames = current.lastTenGames
+  const x01 = current.byMode.X01
+  const around = current.byMode.AROUND
+  const x01AllTime = summarizeModeAllTime(x01, 'X01')
+  const x01LastTen = summarizeLastTen(x01.lastTenGames, 'X01')
+  const aroundAllTime = summarizeModeAllTime(around, 'AROUND')
+  const aroundLastTen = summarizeLastTen(around.lastTenGames, 'AROUND')
 
   return {
-    allTime: {
-      totalGames: current.totalGames,
-      wins: current.wins,
-      losses: current.losses,
-      winRate: ratioPercent(current.wins, current.totalGames),
-      legsWon: current.legsWon,
-      legsLost: current.legsLost,
-      setsWon: current.setsWon,
-      setsLost: current.setsLost,
-      threeDartAvg: avgFromPointsAndDarts(current.pointsScored, current.dartsThrown),
-      checkouts: current.checkouts,
-      checkoutAttempts: current.checkoutAttempts,
-      checkoutRate: ratioPercent(current.checkouts, current.checkoutAttempts),
-      highestCheckout: current.highestCheckout > 0 ? current.highestCheckout : null,
-      highestScore: current.highestScore,
+    allTime: x01AllTime,
+    lastTen: x01LastTen,
+    history: [...x01.lastTenGames],
+    byMode: {
+      X01: {
+        allTime: x01AllTime,
+        lastTen: x01LastTen,
+        history: [...x01.lastTenGames],
+      },
+      AROUND: {
+        allTime: aroundAllTime,
+        lastTen: aroundLastTen,
+        history: [...around.lastTenGames],
+      },
     },
-    lastTen: summarizeLastTen(allGames),
-    history: [...allGames],
   }
 }
 
@@ -195,7 +223,27 @@ export function getGlobalRecords(): GlobalRecords {
   return db.global
 }
 
-function summarizeLastTen(games: GameSummary[]): UserStatsView['lastTen'] {
+function summarizeModeAllTime(mode: ModeAggregateStats, gameType: GameType): UserStatsView['allTime'] {
+  return {
+    totalGames: mode.totalGames,
+    wins: mode.wins,
+    losses: mode.losses,
+    winRate: ratioPercent(mode.wins, mode.totalGames),
+    dartsThrown: mode.dartsThrown,
+    legsWon: mode.legsWon,
+    legsLost: mode.legsLost,
+    setsWon: mode.setsWon,
+    setsLost: mode.setsLost,
+    threeDartAvg: gameType === 'AROUND' ? null : avgFromPointsAndDarts(mode.pointsScored, mode.dartsThrown),
+    checkouts: gameType === 'AROUND' ? 0 : mode.checkouts,
+    checkoutAttempts: gameType === 'AROUND' ? 0 : mode.checkoutAttempts,
+    checkoutRate: gameType === 'AROUND' ? null : ratioPercent(mode.checkouts, mode.checkoutAttempts),
+    highestCheckout: gameType === 'AROUND' ? null : mode.highestCheckout > 0 ? mode.highestCheckout : null,
+    highestScore: gameType === 'AROUND' ? 0 : mode.highestScore,
+  }
+}
+
+function summarizeLastTen(games: GameSummary[], gameType: GameType): UserStatsView['lastTen'] {
   const total = games.length
   let wins = 0
   let losses = 0
@@ -222,40 +270,54 @@ function summarizeLastTen(games: GameSummary[]): UserStatsView['lastTen'] {
     wins,
     losses,
     winRate: ratioPercent(wins, total),
-    threeDartAvg: avgFromPointsAndDarts(points, darts),
-    checkouts,
-    checkoutAttempts,
-    checkoutRate: ratioPercent(checkouts, checkoutAttempts),
-    highestCheckout: highestCheckout > 0 ? highestCheckout : null,
-    highestScore,
+    dartsThrown: darts,
+    threeDartAvg: gameType === 'AROUND' ? null : avgFromPointsAndDarts(points, darts),
+    checkouts: gameType === 'AROUND' ? 0 : checkouts,
+    checkoutAttempts: gameType === 'AROUND' ? 0 : checkoutAttempts,
+    checkoutRate: gameType === 'AROUND' ? null : ratioPercent(checkouts, checkoutAttempts),
+    highestCheckout: gameType === 'AROUND' ? null : highestCheckout > 0 ? highestCheckout : null,
+    highestScore: gameType === 'AROUND' ? 0 : highestScore,
   }
 }
 
 function rebuildGlobalRecords(): void {
-  let allTimeMostWins: GlobalRecords['allTime']['mostWins'] = null
-  let allTimeHighestCheckout: GlobalRecords['allTime']['highestCheckout'] = null
-  let allTimeHighestScore: GlobalRecords['allTime']['highestScore'] = null
-  let allTimeBestAverage: GlobalRecords['allTime']['bestThreeDartAverage'] = null
+  db.global = {
+    byMode: {
+      X01: rebuildGlobalModeRecords('X01'),
+      AROUND: rebuildGlobalModeRecords('AROUND'),
+    },
+    updatedAt: Date.now(),
+  }
+}
 
-  let lastTenMostWins: GlobalRecords['lastTen']['mostWins'] = null
-  let lastTenHighestCheckout: GlobalRecords['lastTen']['highestCheckout'] = null
-  let lastTenHighestScore: GlobalRecords['lastTen']['highestScore'] = null
-  let lastTenBestAverage: GlobalRecords['lastTen']['bestThreeDartAverage'] = null
+function rebuildGlobalModeRecords(gameType: GameType): GlobalModeRecords {
+  let allTimeMostWins: StatRecord = null
+  let allTimeHighestCheckout: StatRecord = null
+  let allTimeHighestScore: StatRecord = null
+  let allTimeBestAverage: StatRecord = null
+
+  let lastTenMostWins: StatRecord = null
+  let lastTenHighestCheckout: StatRecord = null
+  let lastTenHighestScore: StatRecord = null
+  let lastTenBestAverage: StatRecord = null
 
   for (const stat of Object.values(db.users)) {
-    if (!allTimeMostWins || stat.wins > allTimeMostWins.value) allTimeMostWins = { userId: stat.userId, value: stat.wins }
-    if (!allTimeHighestCheckout || stat.highestCheckout > allTimeHighestCheckout.value) {
-      allTimeHighestCheckout = { userId: stat.userId, value: stat.highestCheckout }
+    const mode = stat.byMode[gameType]
+    if (!allTimeMostWins || mode.wins > allTimeMostWins.value) allTimeMostWins = { userId: stat.userId, value: mode.wins }
+    if (!allTimeHighestCheckout || mode.highestCheckout > allTimeHighestCheckout.value) {
+      allTimeHighestCheckout = { userId: stat.userId, value: mode.highestCheckout }
     }
-    if (!allTimeHighestScore || stat.highestScore > allTimeHighestScore.value) {
-      allTimeHighestScore = { userId: stat.userId, value: stat.highestScore }
+    if (!allTimeHighestScore || mode.highestScore > allTimeHighestScore.value) {
+      allTimeHighestScore = { userId: stat.userId, value: mode.highestScore }
     }
-    const allTimeAvg = avgFromPointsAndDarts(stat.pointsScored, stat.dartsThrown)
-    if (allTimeAvg != null && (!allTimeBestAverage || allTimeAvg > allTimeBestAverage.value)) {
-      allTimeBestAverage = { userId: stat.userId, value: allTimeAvg }
+    if (gameType === 'X01') {
+      const allTimeAvg = avgFromPointsAndDarts(mode.pointsScored, mode.dartsThrown)
+      if (allTimeAvg != null && (!allTimeBestAverage || allTimeAvg > allTimeBestAverage.value)) {
+        allTimeBestAverage = { userId: stat.userId, value: allTimeAvg }
+      }
     }
 
-    const lt = summarizeLastTen(stat.lastTenGames)
+    const lt = summarizeLastTen(mode.lastTenGames, gameType)
     if (!lastTenMostWins || lt.wins > lastTenMostWins.value) lastTenMostWins = { userId: stat.userId, value: lt.wins }
     const ltCheckout = lt.highestCheckout ?? 0
     if (!lastTenHighestCheckout || ltCheckout > lastTenHighestCheckout.value) {
@@ -264,32 +326,43 @@ function rebuildGlobalRecords(): void {
     if (!lastTenHighestScore || lt.highestScore > lastTenHighestScore.value) {
       lastTenHighestScore = { userId: stat.userId, value: lt.highestScore }
     }
-    const ltAvg = lt.threeDartAvg
-    if (ltAvg != null && (!lastTenBestAverage || ltAvg > lastTenBestAverage.value)) {
-      lastTenBestAverage = { userId: stat.userId, value: ltAvg }
+    if (gameType === 'X01') {
+      const ltAvg = lt.threeDartAvg
+      if (ltAvg != null && (!lastTenBestAverage || ltAvg > lastTenBestAverage.value)) {
+        lastTenBestAverage = { userId: stat.userId, value: ltAvg }
+      }
     }
   }
 
-  db.global = {
+  return {
     allTime: {
       mostWins: allTimeMostWins,
-      highestCheckout: allTimeHighestCheckout,
-      highestScore: allTimeHighestScore,
-      bestThreeDartAverage: allTimeBestAverage,
+      highestCheckout: gameType === 'X01' ? allTimeHighestCheckout : null,
+      highestScore: gameType === 'X01' ? allTimeHighestScore : null,
+      bestThreeDartAverage: gameType === 'X01' ? allTimeBestAverage : null,
     },
     lastTen: {
       mostWins: lastTenMostWins,
-      highestCheckout: lastTenHighestCheckout,
-      highestScore: lastTenHighestScore,
-      bestThreeDartAverage: lastTenBestAverage,
+      highestCheckout: gameType === 'X01' ? lastTenHighestCheckout : null,
+      highestScore: gameType === 'X01' ? lastTenHighestScore : null,
+      bestThreeDartAverage: gameType === 'X01' ? lastTenBestAverage : null,
     },
-    updatedAt: Date.now(),
   }
 }
 
 function emptyAggregate(userId: string): UserAggregateStats {
   return {
     userId,
+    byMode: {
+      X01: emptyModeAggregate(),
+      AROUND: emptyModeAggregate(),
+    },
+    updatedAt: 0,
+  }
+}
+
+function emptyModeAggregate(): ModeAggregateStats {
+  return {
     totalGames: 0,
     wins: 0,
     losses: 0,
@@ -303,7 +376,6 @@ function emptyAggregate(userId: string): UserAggregateStats {
     checkoutAttempts: 0,
     highestCheckout: 0,
     highestScore: 0,
-    updatedAt: 0,
     lastTenGames: [],
   }
 }
@@ -355,17 +427,9 @@ function loadDb(): StatsStoreData {
       const initial: StatsStoreData = {
         users: {},
         global: {
-          allTime: {
-            mostWins: null,
-            highestCheckout: null,
-            highestScore: null,
-            bestThreeDartAverage: null,
-          },
-          lastTen: {
-            mostWins: null,
-            highestCheckout: null,
-            highestScore: null,
-            bestThreeDartAverage: null,
+          byMode: {
+            X01: emptyGlobalModeRecords(),
+            AROUND: emptyGlobalModeRecords(),
           },
           updatedAt: Date.now(),
         },
@@ -376,63 +440,23 @@ function loadDb(): StatsStoreData {
 
     const raw = fs.readFileSync(statsFile, 'utf8')
     const parsed = JSON.parse(raw)
+    const usersRaw = typeof parsed?.users === 'object' && parsed.users ? parsed.users : {}
+    const users: Record<string, UserAggregateStats> = {}
+    for (const [userId, raw] of Object.entries(usersRaw as Record<string, any>)) {
+      users[userId] = normalizeUserAggregate(userId, raw)
+    }
+
     return {
-      users: typeof parsed?.users === 'object' && parsed.users ? parsed.users : {},
-      global: {
-        allTime: {
-          mostWins:
-            typeof parsed?.global?.allTime?.mostWins === 'object' && parsed.global.allTime.mostWins
-              ? parsed.global.allTime.mostWins
-              : null,
-          highestCheckout:
-            typeof parsed?.global?.allTime?.highestCheckout === 'object' && parsed.global.allTime.highestCheckout
-              ? parsed.global.allTime.highestCheckout
-              : null,
-          highestScore:
-            typeof parsed?.global?.allTime?.highestScore === 'object' && parsed.global.allTime.highestScore
-              ? parsed.global.allTime.highestScore
-              : null,
-          bestThreeDartAverage:
-            typeof parsed?.global?.allTime?.bestThreeDartAverage === 'object' && parsed.global.allTime.bestThreeDartAverage
-              ? parsed.global.allTime.bestThreeDartAverage
-              : null,
-        },
-        lastTen: {
-          mostWins:
-            typeof parsed?.global?.lastTen?.mostWins === 'object' && parsed.global.lastTen.mostWins
-              ? parsed.global.lastTen.mostWins
-              : null,
-          highestCheckout:
-            typeof parsed?.global?.lastTen?.highestCheckout === 'object' && parsed.global.lastTen.highestCheckout
-              ? parsed.global.lastTen.highestCheckout
-              : null,
-          highestScore:
-            typeof parsed?.global?.lastTen?.highestScore === 'object' && parsed.global.lastTen.highestScore
-              ? parsed.global.lastTen.highestScore
-              : null,
-          bestThreeDartAverage:
-            typeof parsed?.global?.lastTen?.bestThreeDartAverage === 'object' && parsed.global.lastTen.bestThreeDartAverage
-              ? parsed.global.lastTen.bestThreeDartAverage
-              : null,
-        },
-        updatedAt: typeof parsed?.global?.updatedAt === 'number' ? parsed.global.updatedAt : Date.now(),
-      },
+      users,
+      global: normalizeGlobalRecords(parsed?.global),
     }
   } catch {
     return {
       users: {},
       global: {
-        allTime: {
-          mostWins: null,
-          highestCheckout: null,
-          highestScore: null,
-          bestThreeDartAverage: null,
-        },
-        lastTen: {
-          mostWins: null,
-          highestCheckout: null,
-          highestScore: null,
-          bestThreeDartAverage: null,
+        byMode: {
+          X01: emptyGlobalModeRecords(),
+          AROUND: emptyGlobalModeRecords(),
         },
         updatedAt: Date.now(),
       },
@@ -444,4 +468,148 @@ function persistDb(): void {
   const dir = path.dirname(statsFile)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(statsFile, JSON.stringify(db, null, 2), 'utf8')
+}
+
+function normalizeUserAggregate(userId: string, raw: any): UserAggregateStats {
+  if (raw && typeof raw === 'object' && raw.byMode && typeof raw.byMode === 'object') {
+    const x01 = normalizeModeAggregate(raw.byMode.X01, 'X01')
+    const around = normalizeModeAggregate(raw.byMode.AROUND, 'AROUND')
+    return {
+      userId,
+      byMode: { X01: x01, AROUND: around },
+      updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0,
+    }
+  }
+
+  const legacyGames = Array.isArray(raw?.lastTenGames) ? raw.lastTenGames : []
+  const x01: ModeAggregateStats = {
+    totalGames: asInt(raw?.totalGames),
+    wins: asInt(raw?.wins),
+    losses: asInt(raw?.losses),
+    legsWon: asInt(raw?.legsWon),
+    legsLost: asInt(raw?.legsLost),
+    setsWon: asInt(raw?.setsWon),
+    setsLost: asInt(raw?.setsLost),
+    dartsThrown: asInt(raw?.dartsThrown),
+    pointsScored: asInt(raw?.pointsScored),
+    checkouts: asInt(raw?.checkouts),
+    checkoutAttempts: asInt(raw?.checkoutAttempts),
+    highestCheckout: asInt(raw?.highestCheckout),
+    highestScore: asInt(raw?.highestScore),
+    lastTenGames: legacyGames.map((g: any) => normalizeGameSummary(g, 'X01')),
+  }
+  return {
+    userId,
+    byMode: {
+      X01: x01,
+      AROUND: emptyModeAggregate(),
+    },
+    updatedAt: typeof raw?.updatedAt === 'number' ? raw.updatedAt : 0,
+  }
+}
+
+function normalizeModeAggregate(raw: any, fallbackType: GameType): ModeAggregateStats {
+  return {
+    totalGames: asInt(raw?.totalGames),
+    wins: asInt(raw?.wins),
+    losses: asInt(raw?.losses),
+    legsWon: asInt(raw?.legsWon),
+    legsLost: asInt(raw?.legsLost),
+    setsWon: asInt(raw?.setsWon),
+    setsLost: asInt(raw?.setsLost),
+    dartsThrown: asInt(raw?.dartsThrown),
+    pointsScored: asInt(raw?.pointsScored),
+    checkouts: asInt(raw?.checkouts),
+    checkoutAttempts: asInt(raw?.checkoutAttempts),
+    highestCheckout: asInt(raw?.highestCheckout),
+    highestScore: asInt(raw?.highestScore),
+    lastTenGames: Array.isArray(raw?.lastTenGames)
+      ? raw.lastTenGames.map((g: any) => normalizeGameSummary(g, fallbackType))
+      : [],
+  }
+}
+
+function normalizeGameSummary(raw: any, fallbackType: GameType): GameSummary {
+  const gameType: GameType = raw?.gameType === 'AROUND' || raw?.gameType === 'X01' ? raw.gameType : fallbackType
+  return {
+    gameType,
+    roomCode: typeof raw?.roomCode === 'string' ? raw.roomCode : '',
+    finishedAt: asInt(raw?.finishedAt),
+    result: raw?.result === 'WIN' ? 'WIN' : 'LOSS',
+    legsWon: asInt(raw?.legsWon),
+    legsLost: asInt(raw?.legsLost),
+    setsWon: asInt(raw?.setsWon),
+    setsLost: asInt(raw?.setsLost),
+    dartsThrown: asInt(raw?.dartsThrown),
+    pointsScored: asInt(raw?.pointsScored),
+    threeDartAvg: typeof raw?.threeDartAvg === 'number' ? raw.threeDartAvg : null,
+    checkouts: asInt(raw?.checkouts),
+    checkoutAttempts: asInt(raw?.checkoutAttempts),
+    highestCheckout: typeof raw?.highestCheckout === 'number' ? raw.highestCheckout : null,
+    highestScore: asInt(raw?.highestScore),
+  }
+}
+
+function asInt(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
+}
+
+function emptyGlobalModeRecords(): GlobalModeRecords {
+  return {
+    allTime: {
+      mostWins: null,
+      highestCheckout: null,
+      highestScore: null,
+      bestThreeDartAverage: null,
+    },
+    lastTen: {
+      mostWins: null,
+      highestCheckout: null,
+      highestScore: null,
+      bestThreeDartAverage: null,
+    },
+  }
+}
+
+function normalizeStatRecord(raw: any): StatRecord {
+  if (!raw || typeof raw !== 'object') return null
+  if (typeof raw.userId !== 'string' || typeof raw.value !== 'number' || !Number.isFinite(raw.value)) return null
+  return { userId: raw.userId, value: raw.value }
+}
+
+function normalizeGlobalModeRecords(raw: any): GlobalModeRecords {
+  return {
+    allTime: {
+      mostWins: normalizeStatRecord(raw?.allTime?.mostWins),
+      highestCheckout: normalizeStatRecord(raw?.allTime?.highestCheckout),
+      highestScore: normalizeStatRecord(raw?.allTime?.highestScore),
+      bestThreeDartAverage: normalizeStatRecord(raw?.allTime?.bestThreeDartAverage),
+    },
+    lastTen: {
+      mostWins: normalizeStatRecord(raw?.lastTen?.mostWins),
+      highestCheckout: normalizeStatRecord(raw?.lastTen?.highestCheckout),
+      highestScore: normalizeStatRecord(raw?.lastTen?.highestScore),
+      bestThreeDartAverage: normalizeStatRecord(raw?.lastTen?.bestThreeDartAverage),
+    },
+  }
+}
+
+function normalizeGlobalRecords(raw: any): GlobalRecords {
+  if (raw && typeof raw === 'object' && raw.byMode && typeof raw.byMode === 'object') {
+    return {
+      byMode: {
+        X01: normalizeGlobalModeRecords(raw.byMode.X01),
+        AROUND: normalizeGlobalModeRecords(raw.byMode.AROUND),
+      },
+      updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
+    }
+  }
+
+  return {
+    byMode: {
+      X01: normalizeGlobalModeRecords(raw),
+      AROUND: emptyGlobalModeRecords(),
+    },
+    updatedAt: typeof raw?.updatedAt === 'number' ? raw.updatedAt : Date.now(),
+  }
 }

@@ -370,6 +370,12 @@ export function getCurrentLeg(match: X01MatchState) {
 }
 
 export function computeMatchSnapshot(match: X01MatchState) {
+  if (match.settings.gameType !== 'X01') {
+    throw new GameRuleError('INVALID_SETTINGS', 'X01 snapshot requested for non-X01 settings', {
+      gameType: match.settings.gameType,
+    })
+  }
+
   const leg = getCurrentLeg(match)
   const legSnap = computeX01LegSnapshot({
     settings: match.settings,

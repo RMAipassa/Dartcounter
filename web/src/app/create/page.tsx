@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
-import type { X01Settings } from '@/lib/types'
+import type { AroundSettings, GameSettings, X01Settings } from '@/lib/types'
 
 const defaultSettings: X01Settings = {
   gameType: 'X01',
@@ -17,11 +17,19 @@ const defaultSettings: X01Settings = {
   masterOut: false,
 }
 
+const defaultAroundSettings: AroundSettings = {
+  gameType: 'AROUND',
+  legsToWin: 3,
+  setsEnabled: false,
+  setsToWin: 0,
+  advanceByMultiplier: false,
+}
+
 export default function CreatePage() {
   const router = useRouter()
   const serverUrl = useMemo(() => getServerUrl(), [])
   const [creating, setCreating] = useState(false)
-  const [settings, setSettings] = useState<X01Settings>(defaultSettings)
+  const [settings, setSettings] = useState<GameSettings>(defaultSettings)
   const [title, setTitle] = useState('')
   const [isPublic, setIsPublic] = useState(false)
   const [name, setName] = useState('')
@@ -106,21 +114,85 @@ export default function CreatePage() {
 
           <div className="grid2">
             <div className="col" style={{ gridColumn: '1 / -1' }}>
-              <label className="help">Quick presets</label>
+              <label className="help">Game mode</label>
               <div className="row homePresetRow">
-                <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...s, startScore: 301 }))}>301</button>
-                <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...s, startScore: 501 }))}>501</button>
-                <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...s, startScore: 701 }))}>701</button>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => setSettings((s) => (s.gameType === 'X01' ? s : defaultSettings))}
+                >
+                  X01
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => setSettings((s) => (s.gameType === 'AROUND' ? s : defaultAroundSettings))}
+                >
+                  Around the Board
+                </button>
               </div>
             </div>
-            <div className="col">
-              <label className="help">Start score</label>
-              <input className="input" type="number" value={settings.startScore} onChange={(e) => setSettings((s) => ({ ...s, startScore: Number(e.target.value) }))} />
-            </div>
-            <div className="col">
-              <label className="help">Legs to win</label>
-              <input className="input" type="number" value={settings.legsToWin} onChange={(e) => setSettings((s) => ({ ...s, legsToWin: Number(e.target.value) }))} />
-            </div>
+
+            {settings.gameType === 'X01' ? (
+              <>
+                <div className="col" style={{ gridColumn: '1 / -1' }}>
+                  <label className="help">Quick presets</label>
+                  <div className="row homePresetRow">
+                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...(s as X01Settings), startScore: 301 }))}>301</button>
+                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...(s as X01Settings), startScore: 501 }))}>501</button>
+                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...(s as X01Settings), startScore: 701 }))}>701</button>
+                  </div>
+                </div>
+                <div className="col">
+                  <label className="help">Start score</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={2}
+                    value={settings.startScore}
+                    onChange={(e) =>
+                      setSettings((s) => ({ ...(s as X01Settings), startScore: clampInt(Number(e.target.value), 2, 10001, 501) }))
+                    }
+                  />
+                </div>
+                <div className="col">
+                  <label className="help">Legs to win</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={settings.legsToWin}
+                    onChange={(e) => setSettings((s) => ({ ...(s as X01Settings), legsToWin: clampInt(Number(e.target.value), 1, 99, 3) }))}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="grid2" style={{ gridColumn: '1 / -1' }}>
+                <div className="col">
+                  <label className="help">Legs to win</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    value={settings.legsToWin}
+                    onChange={(e) => setSettings((s) => ({ ...(s as AroundSettings), legsToWin: clampInt(Number(e.target.value), 1, 99, 3) }))}
+                  />
+                </div>
+                <div className="col">
+                  <label className="help">Around scoring</label>
+                  <label className="pill" style={{ cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.advanceByMultiplier}
+                      onChange={(e) =>
+                        setSettings((s) => ({ ...(s as AroundSettings), advanceByMultiplier: e.target.checked }))
+                      }
+                    />
+                    Double/triple advances 2/3 steps
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
 
           <button className="btn btnPrimary" disabled={creating || !effectiveName.trim()} onClick={createRoom}>
@@ -134,7 +206,20 @@ export default function CreatePage() {
   )
 }
 
-function normalizeSettingsForCreate(settings: X01Settings): X01Settings {
+function normalizeSettingsForCreate(settings: GameSettings): GameSettings {
+  if (settings.gameType === 'AROUND') {
+    const legsToWin = clampInt(settings.legsToWin, 1, 99, 3)
+    const setsEnabled = Boolean(settings.setsEnabled)
+    const setsToWin = setsEnabled ? clampInt(settings.setsToWin, 1, 99, 1) : 0
+    return {
+      gameType: 'AROUND',
+      legsToWin,
+      setsEnabled,
+      setsToWin,
+      advanceByMultiplier: Boolean(settings.advanceByMultiplier),
+    }
+  }
+
   const startScore = clampInt(settings.startScore, 2, 10001, 501)
   const legsToWin = clampInt(settings.legsToWin, 1, 99, 3)
   const setsEnabled = Boolean(settings.setsEnabled)

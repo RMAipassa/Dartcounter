@@ -1,6 +1,6 @@
 export type GameStatus = 'LOBBY' | 'LIVE' | 'FINISHED'
 
-export type GameType = 'X01'
+export type GameType = 'X01' | 'AROUND'
 
 export type PlayerId = string
 
@@ -23,6 +23,16 @@ export type X01Settings = {
   doubleOut: boolean
   masterOut: boolean
 }
+
+export type AroundSettings = {
+  gameType: 'AROUND'
+  legsToWin: number
+  setsEnabled: boolean
+  setsToWin: number
+  advanceByMultiplier: boolean
+}
+
+export type GameSettings = X01Settings | AroundSettings
 
 export type TurnInput =
   | { mode: 'TOTAL'; total: number; darts?: Dart[] }
@@ -51,7 +61,7 @@ export type X01LegState = {
 
 export type X01MatchState = {
   status: GameStatus
-  settings: X01Settings
+  settings: GameSettings
   lockedAt: number | null
   players: Player[]
   currentLegIndex: number
@@ -66,6 +76,7 @@ export type PlayerStats = {
   playerId: PlayerId
   legsWon: number
   setsWon: number
+  dartsThrown: number
   threeDartAvg: number | null
   first9Avg: number | null
   checkoutRate: number | null

@@ -11,6 +11,16 @@ export type X01Settings = {
   masterOut: boolean
 }
 
+export type AroundSettings = {
+  gameType: 'AROUND'
+  legsToWin: number
+  setsEnabled: boolean
+  setsToWin: number
+  advanceByMultiplier: boolean
+}
+
+export type GameSettings = X01Settings | AroundSettings
+
 export type Player = {
   id: string
   name: string
@@ -74,7 +84,7 @@ export type LegSnapshot = {
 
 export type MatchSnapshot = {
   status: 'LOBBY' | 'LIVE' | 'FINISHED'
-  settings: X01Settings
+  settings: GameSettings
   lockedAt: number | null
   players: Player[]
   currentLegIndex: number
@@ -97,6 +107,7 @@ export type PlayerStats = {
   playerId: string
   legsWon: number
   setsWon: number
+  dartsThrown: number
   threeDartAvg: number | null
   first9Avg: number | null
   checkoutRate: number | null
