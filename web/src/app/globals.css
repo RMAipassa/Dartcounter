@@ -1021,18 +1021,18 @@ a {
     transform: none;
     border-radius: 20px;
     border-color: rgba(55, 196, 111, 0.24);
-    background: linear-gradient(180deg, rgba(28, 40, 66, 0.95), rgba(13, 21, 40, 0.96));
+    background: linear-gradient(180deg, rgba(20, 24, 20, 0.96), rgba(10, 12, 10, 0.98));
   }
 
   .card {
     border-radius: 20px;
     border-color: rgba(55, 196, 111, 0.24);
-    background: linear-gradient(180deg, rgba(30, 44, 72, 0.72), rgba(20, 33, 58, 0.86));
+    background: linear-gradient(180deg, rgba(24, 28, 24, 0.78), rgba(12, 15, 12, 0.9));
   }
 
   .mobileHomeTile {
     border: 1px solid rgba(55, 196, 111, 0.26);
-    background: linear-gradient(180deg, rgba(32, 48, 78, 0.88), rgba(21, 34, 58, 0.92));
+    background: linear-gradient(180deg, rgba(22, 26, 22, 0.92), rgba(11, 14, 11, 0.96));
     border-radius: 20px;
     min-height: 154px;
     padding: 14px;
