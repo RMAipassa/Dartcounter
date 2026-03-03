@@ -395,6 +395,12 @@ export default function GamePage() {
       if (submittedMode === 'TOTAL') {
         setTotal(0)
         setTotalText('0')
+      } else {
+        setDarts([
+          { segment: 0, multiplier: 0 },
+          { segment: 0, multiplier: 0 },
+          { segment: 0, multiplier: 0 },
+        ])
       }
 
       setNeedDarts(null)
@@ -1176,9 +1182,9 @@ function MobileTurnEntry({
 
   function resetDarts() {
     setDarts([
-      { segment: 20, multiplier: 1 },
-      { segment: 20, multiplier: 1 },
-      { segment: 20, multiplier: 1 },
+      { segment: 0, multiplier: 0 },
+      { segment: 0, multiplier: 0 },
+      { segment: 0, multiplier: 0 },
     ])
     setDartCursor(0)
   }

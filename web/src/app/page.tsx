@@ -75,6 +75,16 @@ export default function HomePage() {
           <span className="mobileHomeTileTitle">Account</span>
           <span className="mobileHomeTileSub">Friends and stats</span>
         </a>
+        <a className="mobileHomeTile" href="/daily-checkout">
+          <span className="mobileHomeTileIcon mobileHomeTileIconMint">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M12 8v4l3 2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="mobileHomeTileTitle">Daily Checkout</span>
+          <span className="mobileHomeTileSub">Wordle-style daily challenge</span>
+        </a>
       </div>
 
     </div>

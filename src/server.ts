@@ -25,6 +25,14 @@ import {
   setUserAutodartsDevice,
 } from './auth/store'
 import { getGlobalRecords, getUserStats, recordFinishedMatch } from './auth/stats'
+import {
+  getDailyCheckoutTarget,
+  getDailyCheckoutView,
+  getDailyCheckoutStartKey,
+  getMinimumCheckoutDarts,
+  listDailyCheckoutArchive,
+  submitDailyCheckout,
+} from './daily-checkout/store'
 import { GameRuleError } from './game/errors'
 import type { AroundSettings, Dart, GameSettings, TurnInput, TurnRecord, X01Settings } from './game/types'
 import { computeAroundLegSnapshot, validateAroundSettings } from './game/around'
@@ -107,6 +115,7 @@ app.use(express.json())
 
 const onlineSocketsByUserId = new Map<string, Set<string>>()
 const lastSeenByUserId = new Map<string, number>()
+const dailyCheckoutSubmitThrottle = new Map<string, number>()
 
 function isUserOnline(userId: string): boolean {
   const sockets = onlineSocketsByUserId.get(userId)
@@ -180,6 +189,11 @@ const friendRemoveSchema = z.object({
 
 const friendBlockSchema = z.object({
   friendUserId: z.string().trim().min(1).max(128),
+})
+
+const dailyCheckoutSubmitSchema = z.object({
+  dartsUsed: z.number().int().min(1).max(501),
+  dateKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
 
 app.post('/api/auth/register', (req, res) => {
@@ -523,6 +537,80 @@ app.get('/api/stats/friends', (req, res) => {
     })
 
   res.status(200).json({ ok: true, rows })
+})
+
+app.get('/api/daily-checkout', (req, res) => {
+  const token = bearerTokenFromReq(req)
+  const user = getUserBySessionToken(token)
+  const dateKeyRaw = typeof req.query.dateKey === 'string' ? req.query.dateKey : undefined
+  try {
+    const view = getDailyCheckoutView({ dateKey: dateKeyRaw, userId: user?.id ?? null })
+    res.status(200).json({ ok: true, ...view })
+  } catch (err: any) {
+    const msg = String(err?.message ?? '')
+    if (msg === 'DAILY_CHECKOUT_NOT_STARTED') {
+      res.status(400).json({ ok: false, message: `Daily checkout starts on ${getDailyCheckoutStartKey()}.` })
+      return
+    }
+    if (msg === 'DAILY_CHECKOUT_FUTURE_DATE_NOT_ALLOWED') {
+      res.status(400).json({ ok: false, message: 'Future daily checkouts are not available yet.' })
+      return
+    }
+    res.status(400).json({ ok: false, message: 'Invalid daily checkout request' })
+  }
+})
+
+app.post('/api/daily-checkout/submit', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = dailyCheckoutSubmitSchema.parse(req.body)
+    const dateTarget = getDailyCheckoutTarget(body.dateKey)
+    const minDarts = getMinimumCheckoutDarts(dateTarget.target)
+    if (body.dartsUsed < minDarts) {
+      res.status(400).json({ ok: false, message: `That target cannot be checked out in fewer than ${minDarts} darts.` })
+      return
+    }
+
+    const throttleKey = `${user.id}:${dateTarget.dateKey}:${req.ip ?? 'ip-unknown'}`
+    const now = Date.now()
+    const lastSubmitAt = dailyCheckoutSubmitThrottle.get(throttleKey) ?? 0
+    if (now - lastSubmitAt < 20_000) {
+      res.status(429).json({ ok: false, message: 'Please wait before submitting again.' })
+      return
+    }
+    dailyCheckoutSubmitThrottle.set(throttleKey, now)
+
+    const result = submitDailyCheckout({
+      userId: user.id,
+      displayName: user.displayName,
+      dartsUsed: body.dartsUsed,
+      dateKey: dateTarget.dateKey,
+    })
+    const view = getDailyCheckoutView({ dateKey: result.dateKey, userId: user.id })
+    res.status(200).json({ ok: true, improved: result.improved, ...view })
+  } catch (err: any) {
+    const msg = String(err?.message ?? '')
+    if (msg === 'DAILY_CHECKOUT_NOT_STARTED') {
+      res.status(400).json({ ok: false, message: `Daily checkout starts on ${getDailyCheckoutStartKey()}.` })
+      return
+    }
+    if (msg === 'DAILY_CHECKOUT_FUTURE_DATE_NOT_ALLOWED') {
+      res.status(400).json({ ok: false, message: 'Future daily checkouts are not available yet.' })
+      return
+    }
+    res.status(400).json({ ok: false, message: 'Invalid daily checkout submit request' })
+  }
+})
+
+app.get('/api/daily-checkout/archive', (req, res) => {
+  const token = bearerTokenFromReq(req)
+  const user = getUserBySessionToken(token)
+  const days = listDailyCheckoutArchive({ userId: user?.id ?? null })
+  res.status(200).json({ ok: true, days })
 })
 
 app.get('/api/autodarts/status', (_req, res) => {

@@ -412,6 +412,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="menuBtnIcon" aria-hidden="true">A</span>
                 {incomingRequestCount > 0 ? `Account (${incomingRequestCount})` : 'Account'}
               </a>
+              <a className="btn menuNavBtn" href="/daily-checkout" onClick={() => setOpen(false)}>
+                <span className="menuBtnIcon" aria-hidden="true">D</span>
+                <span>Daily checkout</span>
+              </a>
               {roomCode ? (
                 <button
                   className="btn menuNavBtn"
@@ -490,6 +494,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </svg>
             </span>
             <span>Account</span>
+          </a>
+          <a className={pathname.startsWith('/daily-checkout') ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/daily-checkout">
+            <span className="mobileDockIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M12 8v4l3 2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span>Daily</span>
           </a>
         </nav>
       ) : null}
