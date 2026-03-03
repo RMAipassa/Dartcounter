@@ -63,7 +63,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname, isMobile])
 
   const hideTopbar = isMobile && Boolean(pathname.match(/^\/room\/[^/]+\/game/i))
-  const showBottomNav = !Boolean(pathname.match(/^\/room\/[^/]+\/game/i))
+  const showBottomNav = !Boolean(pathname.match(/^\/room\/[^/]+\/game/i) || pathname.match(/^\/daily-checkout(\/|$)/i))
 
   useEffect(() => {
     function onOpenMenu() {
@@ -416,6 +416,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="menuBtnIcon" aria-hidden="true">D</span>
                 <span>Daily checkout</span>
               </a>
+              <a className="btn menuNavBtn" href="/tournaments" onClick={() => setOpen(false)}>
+                <span className="menuBtnIcon" aria-hidden="true">T</span>
+                <span>Tournaments</span>
+              </a>
               {roomCode ? (
                 <button
                   className="btn menuNavBtn"
@@ -503,6 +507,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </svg>
             </span>
             <span>Daily</span>
+          </a>
+          <a className={pathname.startsWith('/tournaments') ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/tournaments">
+            <span className="mobileDockIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M6 5h12v2a6 6 0 0 1-4 5.64V16h3v2H7v-2h3v-3.36A6 6 0 0 1 6 7V5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <span>Tourneys</span>
           </a>
         </nav>
       ) : null}
