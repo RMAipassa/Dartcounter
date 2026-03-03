@@ -34,13 +34,25 @@ import {
   submitDailyCheckout,
 } from './daily-checkout/store'
 import {
+  addLocalTournamentPlayer,
+  attachRoomToMatchByParticipant,
+  autoReportWinnerByRoom,
   assignMatchRoom,
+  closeTournament,
   createTournament,
   getTournament,
+  getTournamentMatchForRoomCode,
+  getTournamentMatchParticipants,
   joinTournament,
+  listDueTournamentNoShowChecks,
   leaveTournament,
+  listPendingTournamentInvitesForUser,
   listTournaments,
   reportMatchWinner,
+  respondTournamentInvite,
+  resolveTournamentNoShow,
+  sendTournamentInvite,
+  setTournamentSeeding,
   startTournament,
 } from './tournaments/store'
 import { GameRuleError } from './game/errors'
@@ -72,6 +84,28 @@ function randomId(bytes: number): string {
 function bearerTokenFromReq(req: express.Request): string | null {
   const auth = req.header('authorization') ?? ''
   return auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : null
+}
+
+function parseEnvSet(value?: string): Set<string> {
+  if (!value) return new Set()
+  return new Set(
+    value
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map((x) => x.toLowerCase()),
+  )
+}
+
+const adminUserIds = parseEnvSet(process.env.ADMIN_USER_IDS)
+const adminEmails = parseEnvSet(process.env.ADMIN_EMAILS)
+
+function isAdminUser(user: { id: string; email?: string | null } | null | undefined): boolean {
+  if (!user) return false
+  if (adminUserIds.has(user.id.toLowerCase())) return true
+  const email = (user.email ?? '').toLowerCase()
+  if (email && adminEmails.has(email)) return true
+  return false
 }
 
 function withNamesForGlobalMode(mode: {
@@ -204,6 +238,7 @@ const friendBlockSchema = z.object({
 const tournamentCreateSchema = z.object({
   name: z.string().trim().min(1).max(64),
   maxPlayers: z.number().int().min(2).max(128).optional(),
+  participationMode: z.union([z.literal('ONLINE'), z.literal('LOCAL')]).optional(),
   settings: z.any(),
 })
 
@@ -221,6 +256,27 @@ const tournamentReportWinnerSchema = z.object({
   tournamentId: z.string().trim().min(1).max(128),
   matchId: z.string().trim().min(1).max(128),
   winnerUserId: z.string().trim().min(1).max(128),
+})
+
+const tournamentSeedingSchema = z.object({
+  tournamentId: z.string().trim().min(1).max(128),
+  mode: z.union([z.literal('JOIN_ORDER'), z.literal('RANDOM'), z.literal('MANUAL')]),
+  manualSeedUserIds: z.array(z.string().trim().min(1).max(128)).optional(),
+})
+
+const tournamentInviteSendSchema = z.object({
+  tournamentId: z.string().trim().min(1).max(128),
+  toUserId: z.string().trim().min(1).max(128),
+})
+
+const tournamentInviteRespondSchema = z.object({
+  inviteId: z.string().trim().min(1).max(128),
+  accept: z.boolean(),
+})
+
+const tournamentAddPlayerSchema = z.object({
+  tournamentId: z.string().trim().min(1).max(128),
+  displayName: z.string().trim().min(1).max(32),
 })
 
 const dailyCheckoutSubmitSchema = z.object({
@@ -276,7 +332,7 @@ app.get('/api/auth/me', (req, res) => {
     res.status(401).json({ ok: false, message: 'Not authenticated' })
     return
   }
-  res.status(200).json({ ok: true, user })
+  res.status(200).json({ ok: true, user, isAdmin: isAdminUser(user) })
 })
 
 app.get('/api/friends/me', (req, res) => {
@@ -648,13 +704,16 @@ app.get('/api/daily-checkout/archive', (req, res) => {
 app.get('/api/tournaments', (req, res) => {
   const token = bearerTokenFromReq(req)
   const me = getUserBySessionToken(token)
-  const rows = listTournaments().map((t) => ({
+  const rows = listTournaments()
+    .filter((t) => t.status !== 'FINISHED')
+    .map((t) => ({
     id: t.id,
     name: t.name,
     createdAt: t.createdAt,
     createdByDisplayName: t.createdByDisplayName,
     status: t.status,
     format: t.format,
+    participationMode: t.participationMode,
     playersCount: t.players.length,
     maxPlayers: t.maxPlayers,
     isHost: me ? t.createdByUserId === me.id : false,
@@ -697,6 +756,7 @@ app.post('/api/tournaments/create', (req, res) => {
       createdByDisplayName: user.displayName,
       settings: body.settings,
       maxPlayers: body.maxPlayers ?? 16,
+      participationMode: body.participationMode ?? 'ONLINE',
     })
     res.status(200).json({ ok: true, tournament: t })
   } catch {
@@ -719,9 +779,41 @@ app.post('/api/tournaments/join', (req, res) => {
     const msg =
       code === 'TOURNAMENT_ALREADY_STARTED'
         ? 'Tournament already started'
+        : code === 'TOURNAMENT_ONLINE_ONLY'
+          ? 'This tournament is local-only'
         : code === 'TOURNAMENT_FULL'
           ? 'Tournament is full'
           : 'Could not join tournament'
+    res.status(400).json({ ok: false, message: msg })
+  }
+})
+
+app.post('/api/tournaments/player/add', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentAddPlayerSchema.parse(req.body)
+    const t = addLocalTournamentPlayer({
+      tournamentId: body.tournamentId,
+      requestedByUserId: user.id,
+      displayName: body.displayName,
+    })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch (e: any) {
+    const code = String(e?.message ?? '')
+    const msg =
+      code === 'TOURNAMENT_HOST_REQUIRED'
+        ? 'Only the tournament host can add local players'
+        : code === 'TOURNAMENT_LOCAL_ONLY'
+          ? 'This tournament is online-only'
+        : code === 'TOURNAMENT_PLAYER_NAME_TAKEN'
+          ? 'Player name already exists in tournament'
+          : code === 'TOURNAMENT_FULL'
+            ? 'Tournament is full'
+            : 'Could not add player'
     res.status(400).json({ ok: false, message: msg })
   }
 })
@@ -767,6 +859,50 @@ app.post('/api/tournaments/start', (req, res) => {
   }
 })
 
+app.post('/api/tournaments/close', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  if (!isAdminUser(user)) {
+    res.status(403).json({ ok: false, message: 'Admin privileges required' })
+    return
+  }
+  try {
+    const body = tournamentIdSchema.parse(req.body)
+    const t = getTournament(body.tournamentId)
+    if (t.participationMode !== 'LOCAL') {
+      res.status(400).json({ ok: false, message: 'Only local tournaments can be force-closed' })
+      return
+    }
+    const closed = closeTournament({ tournamentId: body.tournamentId })
+    res.status(200).json({ ok: true, tournament: closed })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Could not close tournament' })
+  }
+})
+
+app.post('/api/tournaments/seeding', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentSeedingSchema.parse(req.body)
+    const t = setTournamentSeeding({
+      tournamentId: body.tournamentId,
+      requestedByUserId: user.id,
+      mode: body.mode,
+      manualSeedUserIds: body.manualSeedUserIds,
+    })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Could not update seeding' })
+  }
+})
+
 app.post('/api/tournaments/match/room', (req, res) => {
   const user = requireAuthedUser(req)
   if (!user) {
@@ -804,6 +940,72 @@ app.post('/api/tournaments/match/report', (req, res) => {
     res.status(200).json({ ok: true, tournament: t })
   } catch {
     res.status(400).json({ ok: false, message: 'Could not report match winner' })
+  }
+})
+
+app.get('/api/tournaments/invites/me', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  const invites = listPendingTournamentInvitesForUser(user.id)
+    .map((i) => {
+      try {
+        const tournament = getTournament(i.tournamentId)
+        const from = getUserById(i.fromUserId)
+        return {
+          id: i.id,
+          tournamentId: i.tournamentId,
+          tournamentName: tournament.name,
+          fromUserId: i.fromUserId,
+          fromDisplayName: from?.displayName ?? i.fromUserId,
+          createdAt: i.createdAt,
+        }
+      } catch {
+        return null
+      }
+    })
+    .filter(Boolean)
+  res.status(200).json({ ok: true, invites })
+})
+
+app.post('/api/tournaments/invite', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentInviteSendSchema.parse(req.body)
+    if (!areFriends(user.id, body.toUserId)) {
+      res.status(400).json({ ok: false, message: 'You can only invite friends' })
+      return
+    }
+    const invite = sendTournamentInvite({ tournamentId: body.tournamentId, fromUserId: user.id, toUserId: body.toUserId })
+    res.status(200).json({ ok: true, invite })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Could not send tournament invite (online tournaments only)' })
+  }
+})
+
+app.post('/api/tournaments/invite/respond', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentInviteRespondSchema.parse(req.body)
+    const t = respondTournamentInvite({
+      inviteId: body.inviteId,
+      toUserId: user.id,
+      accept: body.accept,
+      displayName: user.displayName,
+    })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Could not respond to tournament invite' })
   }
 })
 
@@ -929,6 +1131,8 @@ const createSchema = z.object({
   name: z.string().trim().min(1).max(32),
   authToken: z.string().trim().min(1).max(256).optional(),
   settings: gameSettingsSchema,
+  tournamentId: z.string().trim().min(1).max(128).optional(),
+  tournamentMatchId: z.string().trim().min(1).max(128).optional(),
   title: z.string().trim().min(0).max(48).optional(),
   isPublic: z.boolean().optional(),
 })
@@ -1079,6 +1283,37 @@ function getAutodartsPendingTurn(roomCode: string) {
 
 function roomChannel(code: string): string {
   return `room:${code}`
+}
+
+function processTournamentNoShowForfeits(): void {
+  const due = listDueTournamentNoShowChecks(Date.now())
+  for (const item of due) {
+    try {
+      const room = getRoom(item.roomCode)
+      const presentUserIds = new Set<string>()
+      for (const c of room.clients.values()) {
+        if (c.userId) presentUserIds.add(c.userId)
+      }
+
+      const present = [item.playerAUserId, item.playerBUserId].filter(
+        (id): id is string => Boolean(id) && presentUserIds.has(id as string),
+      )
+      const changed = resolveTournamentNoShow({
+        tournamentId: item.tournamentId,
+        matchId: item.matchId,
+        presentUserIds: present,
+      })
+      if (changed) {
+        io.to(roomChannel(item.roomCode)).emit('room:tournamentForfeitResolved', {
+          tournamentId: item.tournamentId,
+          matchId: item.matchId,
+          presentUserIds: present,
+        })
+      }
+    } catch {
+      // ignore stale room/tournament records
+    }
+  }
 }
 
 function validateGameSettings(settings: GameSettings): void {
@@ -1246,6 +1481,7 @@ function applyAroundTurnForServer(args: { settings: AroundSettings; targetBefore
 
 function emitSnapshot(code: string) {
   const room = getRoom(code)
+  const tournamentMatch = getTournamentMatchForRoomCode(code)
   const matchSnapshot = computeMatchSnapshotForRoom(room.match)
   const autodartsState = autodarts.getRoomState(code)
   const currentPlayerId =
@@ -1260,6 +1496,13 @@ function emitSnapshot(code: string) {
       title: room.title,
       isPublic: room.isPublic,
       createdAt: room.createdAt,
+      tournamentMatch: tournamentMatch
+        ? {
+            tournamentId: tournamentMatch.tournamentId,
+            matchId: tournamentMatch.match.id,
+            participationMode: tournamentMatch.participationMode,
+          }
+        : null,
       autodartsActiveUserId: room.autodartsBoundUserId,
       autodarts: autodartsState,
       autodartsPending: getAutodartsPendingTurn(code),
@@ -1462,6 +1705,15 @@ function submitTurnForCurrentPlayer(args: {
       playerUserIdByPlayerId: room.playerUserIdByPlayerId,
     })
     room.statsRecorded = true
+
+    const tournamentWinnerUserId = winnerId ? room.playerUserIdByPlayerId[winnerId] ?? null : null
+    if (tournamentWinnerUserId) {
+      try {
+        autoReportWinnerByRoom({ roomCode: args.roomCode, winnerUserId: tournamentWinnerUserId })
+      } catch {
+        // no-op
+      }
+    }
   }
 
   syncRoomAutodartsBinding(args.roomCode)
@@ -2045,7 +2297,7 @@ io.on('connection', (socket) => {
 
   socket.on('room:create', (raw, cb) => {
     try {
-      const { name, authToken, settings, title, isPublic } = createSchema.parse(raw)
+      const { name, authToken, settings, title, isPublic, tournamentId, tournamentMatchId } = createSchema.parse(raw)
       validateGameSettings(settings)
       const auth = resolveAuthIdentity(authToken)
       const userId = auth?.userId
@@ -2061,10 +2313,59 @@ io.on('connection', (socket) => {
 
       // By default, the host is also a player in the lobby.
       const hostPlayer = ensurePlayer(room.code, effectiveName, socket.id, userId)
+      let responseRole: 'PLAYER' | 'SPECTATOR' = 'PLAYER'
+      let responsePlayerId: string | undefined = hostPlayer?.id
 
       socket.join(roomChannel(room.code))
       ;(socket.data as any).roomCode = room.code
-      cb?.({ ok: true, code: room.code, hostSecret: room.hostSecret, role: 'PLAYER', playerId: hostPlayer?.id })
+
+      if (userId && tournamentId && tournamentMatchId) {
+        try {
+          attachRoomToMatchByParticipant({
+            tournamentId,
+            matchId: tournamentMatchId,
+            userId,
+            roomCode: room.code,
+          })
+
+          const participants = getTournamentMatchParticipants({ tournamentId, matchId: tournamentMatchId })
+          if (participants.length > 0) {
+            room.match.players = []
+            room.match.legsWonByPlayerId = {}
+            room.match.legsWonInCurrentSetByPlayerId = {}
+            room.match.setsWonByPlayerId = {}
+            room.controllerSocketIdByPlayerId = {}
+            room.playerUserIdByPlayerId = {}
+
+            for (const p of participants) {
+              const player = addPlayer(room, p.displayName)
+              if (p.source === 'USER') room.playerUserIdByPlayerId[player.id] = p.userId
+              if (p.source === 'USER' && p.userId === userId) {
+                room.controllerSocketIdByPlayerId[player.id] = socket.id
+              }
+            }
+
+            room.match.legs[0].startingPlayerIndex = 0
+            room.match.currentLegIndex = 0
+
+            const controlledPlayerId = Object.entries(room.controllerSocketIdByPlayerId).find(([, sid]) => sid === socket.id)?.[0]
+            if (controlledPlayerId) {
+              responseRole = 'PLAYER'
+              responsePlayerId = controlledPlayerId
+            } else {
+              responseRole = 'SPECTATOR'
+              responsePlayerId = undefined
+              const c = room.clients.get(socket.id)
+              if (c) c.role = 'SPECTATOR'
+            }
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn('tournament room attach failed', err)
+        }
+      }
+
+      cb?.({ ok: true, code: room.code, hostSecret: room.hostSecret, role: responseRole, playerId: responsePlayerId })
       emitSnapshot(room.code)
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -2177,13 +2478,24 @@ io.on('connection', (socket) => {
       leaveCurrentRoomIfAny(code)
 
       const room = getRoom(code)
+      const tournamentMatch = getTournamentMatchForRoomCode(code)
 
       const normalized = effectiveName.trim().toLowerCase()
       const isExistingPlayerName = room.match.players.some((p) => p.name.toLowerCase() === normalized)
       const gameStarted = room.match.status !== 'LOBBY'
 
-      const role: 'PLAYER' | 'SPECTATOR' =
+      let role: 'PLAYER' | 'SPECTATOR' =
         isExistingPlayerName ? 'PLAYER' : gameStarted ? 'SPECTATOR' : asSpectator ? 'SPECTATOR' : 'PLAYER'
+
+      if (tournamentMatch) {
+        if (tournamentMatch.participationMode === 'ONLINE') {
+          const allowedUserIds = new Set(tournamentMatch.participants.map((p) => p.userId))
+          role = userId && allowedUserIds.has(userId) ? 'PLAYER' : 'SPECTATOR'
+        } else {
+          const allowedNames = new Set(tournamentMatch.participants.map((p) => p.displayName.trim().toLowerCase()))
+          role = allowedNames.has(normalized) ? 'PLAYER' : 'SPECTATOR'
+        }
+      }
 
       addClient(room, {
         socketId: socket.id,
@@ -2196,7 +2508,29 @@ io.on('connection', (socket) => {
 
       let playerId: string | undefined
       if (role === 'PLAYER') {
-        if (room.match.status === 'LOBBY') {
+        if (tournamentMatch) {
+          if (tournamentMatch.participationMode === 'ONLINE') {
+            const mapped = Object.entries(room.playerUserIdByPlayerId).find(([, uid]) => uid === userId)?.[0]
+            if (mapped) {
+              room.controllerSocketIdByPlayerId[mapped] = socket.id
+              playerId = mapped
+            } else {
+              role = 'SPECTATOR'
+              const c = room.clients.get(socket.id)
+              if (c) c.role = 'SPECTATOR'
+            }
+          } else {
+            const p = getPlayerByName(code, effectiveName)
+            if (p) {
+              room.controllerSocketIdByPlayerId[p.id] = socket.id
+              playerId = p.id
+            } else {
+              role = 'SPECTATOR'
+              const c = room.clients.get(socket.id)
+              if (c) c.role = 'SPECTATOR'
+            }
+          }
+        } else if (room.match.status === 'LOBBY') {
           const p = ensurePlayer(code, effectiveName, socket.id, userId)
           playerId = p?.id
         } else {
@@ -2247,6 +2581,22 @@ io.on('connection', (socket) => {
       const room = getRoom(code)
       const client = getClient(room, socket.id)
       if (!client) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+
+      const tournamentMatch = getTournamentMatchForRoomCode(code)
+      if (tournamentMatch) {
+        if (tournamentMatch.participationMode === 'ONLINE') {
+          const allowed = new Set(tournamentMatch.participants.map((p) => p.userId))
+          if (!client.userId || !allowed.has(client.userId)) {
+            throw new GameRuleError('NOT_ALLOWED', 'Only assigned tournament players can become player')
+          }
+        } else {
+          const allowedNames = new Set(tournamentMatch.participants.map((p) => p.displayName.trim().toLowerCase()))
+          if (!allowedNames.has(client.name.trim().toLowerCase())) {
+            throw new GameRuleError('NOT_ALLOWED', 'Only assigned tournament players can become player')
+          }
+        }
+      }
+
       client.role = 'PLAYER'
       const p = ensurePlayer(code, client.name, socket.id, client.userId)
       cb?.({ ok: true })
@@ -2263,6 +2613,9 @@ io.on('connection', (socket) => {
       const { name } = schema.parse(raw)
       const code = currentRoomCode()
       const room = getRoom(code)
+      if (getTournamentMatchForRoomCode(code)) {
+        throw new GameRuleError('NOT_ALLOWED', 'Tournament match players are fixed')
+      }
       if (room.match.status !== 'LOBBY') throw new GameRuleError('NOT_IN_LOBBY', 'Game already started')
       if (room.match.lockedAt || totalTurnsInMatch(room.match) > 0) {
         throw new GameRuleError('SETTINGS_LOCKED', 'Game is locked after the first recorded turn')
@@ -2301,6 +2654,9 @@ io.on('connection', (socket) => {
       const code = currentRoomCode()
 
       const room = getRoom(code)
+      if (getTournamentMatchForRoomCode(code)) {
+        throw new GameRuleError('NOT_ALLOWED', 'Tournament match players are fixed')
+      }
       assertHost(room, hostSecret)
       if (room.match.status !== 'LOBBY') throw new GameRuleError('NOT_IN_LOBBY', 'Game already started')
 
@@ -2395,7 +2751,10 @@ io.on('connection', (socket) => {
       const currentPlayerId = snap.players[currentIdx].id
 
       const controller = room.controllerSocketIdByPlayerId[currentPlayerId]
-      if (controller !== socket.id) {
+      const tournamentMatch = getTournamentMatchForRoomCode(code)
+      const client = getClient(room, socket.id)
+      const localHostOverride = Boolean(client?.isHost && tournamentMatch?.participationMode === 'LOCAL')
+      if (controller !== socket.id && !localHostOverride) {
         throw new GameRuleError('NOT_YOUR_TURN', 'You can only submit scores for players you control', {
           currentPlayerId,
         })
@@ -2554,6 +2913,7 @@ async function startNext() {
 
 async function main() {
   await startNext()
+  setInterval(processTournamentNoShowForfeits, 15_000)
   server.listen(port, () => {
     // eslint-disable-next-line no-console
     console.log(`server listening on :${port}`)

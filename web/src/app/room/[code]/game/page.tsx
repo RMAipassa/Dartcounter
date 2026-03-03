@@ -271,10 +271,12 @@ export default function GamePage() {
     ? (snap?.clients ?? []).find((c) => c.userId === autodartsActiveUserId)?.name ?? null
     : null
   const isHost = Boolean(hostSecret)
+  const localTournamentHostOverride = Boolean(isHost && snap?.room?.tournamentMatch?.participationMode === 'LOCAL')
   const autodartsBufferPlayerName = autodartsBufferPlayerId
     ? players.find((p) => p.id === autodartsBufferPlayerId)?.name ?? null
     : null
-  const canSubmitByControl = hydrated && currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false
+  const canSubmitByControl =
+    localTournamentHostOverride || (hydrated && currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false)
   const canClearAutodartsPending =
     autodartsBuffer.length > 0 &&
     (isHost || (hydrated && autodartsBufferPlayerId ? canSubmitForCurrent(code, autodartsBufferPlayerId) : false))
@@ -1180,6 +1182,15 @@ function MobileTurnEntry({
     }
   }, [entryMode, autodartsBaselineDarts, darts, dartCursor])
 
+  useEffect(() => {
+    if (entryMode !== 'PER_DART') return
+    const allMisses = darts.every((d) => d.multiplier === 0)
+    if (allMisses && dartCursor >= 3) {
+      setDartCursor(0)
+      setDartMode('S')
+    }
+  }, [entryMode, darts, dartCursor])
+
   function resetDarts() {
     setDarts([
       { segment: 0, multiplier: 0 },
@@ -1240,6 +1251,7 @@ function MobileTurnEntry({
     const out = darts.map((d, i) => (i === idx ? ({ segment: 0, multiplier: 0 } as Dart) : d))
     setDarts(out)
     setDartCursor(Math.min(3, dartCursor + 1))
+    setDartMode('S')
   }
 
   function undoDart() {
@@ -1264,6 +1276,7 @@ function MobileTurnEntry({
     const out = darts.map((x, i) => (i === idx ? d : x))
     setDarts(out)
     setDartCursor(Math.min(3, dartCursor + 1))
+    setDartMode('S')
   }
 
   return (

@@ -856,6 +856,57 @@ a {
   height: 14px;
 }
 
+.tourneyBracketBoard {
+  display: flex;
+  gap: 34px;
+  overflow-x: auto;
+  padding: 2px 6px 12px;
+}
+
+.tourneyRoundTrack {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.tourneyRoundLane {
+  position: relative;
+  margin-top: 8px;
+}
+
+.tourneyMatchAbs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+}
+
+.tourneyLine {
+  position: absolute;
+  pointer-events: none;
+  border-color: rgba(55, 196, 111, 0.42);
+}
+
+.tourneyLineH {
+  right: -22px;
+  top: 50%;
+  width: 22px;
+  border-top: 2px solid rgba(55, 196, 111, 0.42);
+}
+
+.tourneyLineVDown {
+  right: -22px;
+  top: 50%;
+  height: var(--branch-span, 20px);
+  border-right: 2px solid rgba(55, 196, 111, 0.42);
+}
+
+.tourneyLineVUp {
+  right: -22px;
+  bottom: 50%;
+  height: var(--branch-span, 20px);
+  border-right: 2px solid rgba(55, 196, 111, 0.42);
+}
+
 @media (min-width: 821px) {
   .mobileHomeTiles {
     gap: 18px;
@@ -1145,6 +1196,21 @@ a {
   .mobileDockIcon svg {
     width: 14px;
     height: 14px;
+  }
+
+  :root[data-ui-density='compact'] .mobileHomeTile {
+    min-height: 170px;
+    height: 170px;
+  }
+
+  :root[data-ui-density='compact'] .mobileHomeTileTitle {
+    line-height: 1.08;
+    min-height: 2.16em;
+  }
+
+  :root[data-ui-density='compact'] .mobileHomeTileSub {
+    line-height: 1.22;
+    min-height: 2.44em;
   }
 
   @keyframes tileIn {

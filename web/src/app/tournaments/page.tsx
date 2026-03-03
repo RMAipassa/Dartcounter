@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { getServerUrl } from '@/lib/config'
-import type { AroundSettings, Tournament, X01Settings } from '@/lib/types'
+import type { AroundSettings, X01Settings } from '@/lib/types'
 
 type TournamentRow = {
   id: string
@@ -11,11 +11,9 @@ type TournamentRow = {
   createdByDisplayName: string
   status: 'LOBBY' | 'LIVE' | 'FINISHED'
   format: 'SINGLE_ELIM'
-  playersCount: number
   maxPlayers: number
-  isHost: boolean
-  isParticipant: boolean
-  winnerUserId: string | null
+  participationMode: 'ONLINE' | 'LOCAL'
+  playersCount: number
 }
 
 const defaultX01: X01Settings = {
@@ -42,26 +40,20 @@ export default function TournamentsPage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [rows, setRows] = useState<TournamentRow[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Tournament | null>(null)
 
   const [name, setName] = useState('Weekend Knockout')
   const [maxPlayers, setMaxPlayers] = useState('16')
   const [mode, setMode] = useState<'X01' | 'AROUND'>('X01')
+  const [participationMode, setParticipationMode] = useState<'ONLINE' | 'LOCAL'>('ONLINE')
+  const [startScore, setStartScore] = useState('501')
+  const [legsToWin, setLegsToWin] = useState('3')
+  const [setsEnabled, setSetsEnabled] = useState(false)
+  const [setsToWin, setSetsToWin] = useState('1')
 
   useEffect(() => {
     void refreshList()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverUrl])
-
-  useEffect(() => {
-    if (!selectedId) {
-      setSelected(null)
-      return
-    }
-    void refreshSelected(selectedId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId])
 
   async function refreshList() {
     try {
@@ -77,26 +69,28 @@ export default function TournamentsPage() {
     }
   }
 
-  async function refreshSelected(id: string) {
-    try {
-      const token = localStorage.getItem('dc_authToken')
-      const res = await fetch(`${serverUrl}/api/tournaments/${encodeURIComponent(id)}`, {
-        headers: token ? { authorization: `Bearer ${token}` } : undefined,
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Failed to load tournament')
-      setSelected(data.tournament as Tournament)
-    } catch (e: any) {
-      setToast(e?.message ?? String(e))
-    }
-  }
-
   async function createNew() {
     setBusy(true)
     try {
       const token = localStorage.getItem('dc_authToken')
       if (!token) throw new Error('Sign in first to create a tournament')
-      const settings = mode === 'X01' ? defaultX01 : defaultAround
+      const normalizedLegs = Math.max(1, Math.min(99, Math.trunc(Number(legsToWin) || 3)))
+      const normalizedSetsToWin = setsEnabled ? Math.max(1, Math.min(99, Math.trunc(Number(setsToWin) || 1))) : 0
+      const settings =
+        mode === 'X01'
+          ? {
+              ...defaultX01,
+              startScore: Math.max(2, Math.min(10001, Math.trunc(Number(startScore) || 501))),
+              legsToWin: normalizedLegs,
+              setsEnabled,
+              setsToWin: normalizedSetsToWin,
+            }
+          : {
+              ...defaultAround,
+              legsToWin: normalizedLegs,
+              setsEnabled,
+              setsToWin: normalizedSetsToWin,
+            }
       const res = await fetch(`${serverUrl}/api/tournaments/create`, {
         method: 'POST',
         headers: {
@@ -106,6 +100,7 @@ export default function TournamentsPage() {
         body: JSON.stringify({
           name,
           maxPlayers: Math.max(2, Math.min(128, Math.trunc(Number(maxPlayers) || 16)), 2),
+          participationMode,
           settings,
         }),
       })
@@ -113,49 +108,12 @@ export default function TournamentsPage() {
       if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Create failed')
       await refreshList()
       const id = String(data.tournament?.id ?? '')
-      if (id) setSelectedId(id)
+      if (id) window.location.href = `/tournaments/${encodeURIComponent(id)}`
     } catch (e: any) {
       setToast(e?.message ?? String(e))
     } finally {
       setBusy(false)
     }
-  }
-
-  async function doAction(path: string, body: any) {
-    setBusy(true)
-    try {
-      const token = localStorage.getItem('dc_authToken')
-      if (!token) throw new Error('Sign in first')
-      const res = await fetch(`${serverUrl}${path}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Action failed')
-      if (selectedId) await refreshSelected(selectedId)
-      await refreshList()
-      return data
-    } catch (e: any) {
-      setToast(e?.message ?? String(e))
-      return null
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function assignRoom(matchId: string) {
-    const roomCode = window.prompt('Room code for this match (existing room):', '')?.trim().toUpperCase()
-    if (!roomCode || !selected) return
-    await doAction('/api/tournaments/match/room', { tournamentId: selected.id, matchId, roomCode })
-  }
-
-  function displayNameForUser(userId: string | null): string {
-    if (!userId || !selected) return '-'
-    return selected.players.find((p) => p.userId === userId)?.displayName ?? userId.slice(0, 8)
   }
 
   return (
@@ -163,7 +121,7 @@ export default function TournamentsPage() {
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1 className="title">Tournaments</h1>
-          <p className="subtitle">Single-elimination MVP. Join, start bracket, assign room codes, report winners.</p>
+          <p className="subtitle">Create a tournament, then open its dedicated bracket page.</p>
         </div>
         <button className="btn" onClick={() => void refreshList()} disabled={busy}>
           Refresh
@@ -173,98 +131,68 @@ export default function TournamentsPage() {
       <div className="card" style={{ padding: 16 }}>
         <div style={{ fontSize: 16, marginBottom: 8 }}>Create tournament</div>
         <div className="grid2">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Tournament name" />
-          <input className="input" type="number" value={maxPlayers} onChange={(e) => setMaxPlayers(e.target.value)} min={2} max={128} />
+          <div className="col">
+            <label className="help">Tournament name</label>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Weekend Knockout" />
+          </div>
+          <div className="col">
+            <label className="help">Max players</label>
+            <input className="input" type="number" value={maxPlayers} onChange={(e) => setMaxPlayers(e.target.value)} min={2} max={128} />
+          </div>
         </div>
-        <div className="row" style={{ marginTop: 8 }}>
-          <button className={mode === 'X01' ? 'btn btnPrimary' : 'btn'} onClick={() => setMode('X01')}>
-            X01
-          </button>
-          <button className={mode === 'AROUND' ? 'btn btnPrimary' : 'btn'} onClick={() => setMode('AROUND')}>
-            Around
-          </button>
-          <button className="btn btnPrimary" onClick={() => void createNew()} disabled={busy}>
-            Create
-          </button>
+        <div className="grid2" style={{ marginTop: 8 }}>
+          {mode === 'X01' ? (
+            <div className="col">
+              <label className="help">Start score</label>
+              <input className="input" type="number" min={2} max={10001} value={startScore} onChange={(e) => setStartScore(e.target.value)} />
+            </div>
+          ) : (
+            <div className="col">
+              <label className="help">Around mode</label>
+              <span className="pill">Progression 1 to bull</span>
+            </div>
+          )}
+          <div className="col">
+            <label className="help">Legs to win</label>
+            <input className="input" type="number" min={1} max={99} value={legsToWin} onChange={(e) => setLegsToWin(e.target.value)} />
+          </div>
+        </div>
+        <div className="grid2" style={{ marginTop: 8 }}>
+          <div className="col">
+            <label className="help">Sets</label>
+            <label className="pill" style={{ cursor: 'pointer' }}>
+              <input type="checkbox" checked={setsEnabled} onChange={(e) => setSetsEnabled(e.target.checked)} />
+              Enable sets
+            </label>
+          </div>
+          <div className="col">
+            <label className="help">Sets to win</label>
+            <input className="input" type="number" min={1} max={99} value={setsToWin} disabled={!setsEnabled} onChange={(e) => setSetsToWin(e.target.value)} />
+          </div>
+        </div>
+        <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+          <button className={participationMode === 'ONLINE' ? 'btn' : 'btn btnPrimary'} onClick={() => setParticipationMode('ONLINE')}>Online</button>
+          <button className={participationMode === 'LOCAL' ? 'btn' : 'btn btnPrimary'} onClick={() => setParticipationMode('LOCAL')}>Local</button>
+          <button className={mode === 'X01' ? 'btn' : 'btn btnPrimary'} onClick={() => setMode('X01')}>X01</button>
+          <button className={mode === 'AROUND' ? 'btn' : 'btn btnPrimary'} onClick={() => setMode('AROUND')}>Around</button>
+          <button className="btn btnPrimary" onClick={() => void createNew()} disabled={busy}>Create</button>
+        </div>
+        <div className="help" style={{ marginTop: 8 }}>
+          {participationMode === 'ONLINE'
+            ? 'Online mode: only real accounts can join, and you can invite friends.'
+            : 'Local mode: host adds all players manually; online join/invites are disabled.'}
         </div>
       </div>
 
-      <div className="grid2">
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 16, marginBottom: 8 }}>Open tournaments</div>
-          <div className="col">
-            {rows.length < 1 ? <span className="pill">No tournaments yet</span> : null}
-            {rows.map((r) => (
-              <button key={r.id} className={selectedId === r.id ? 'btn btnPrimary' : 'btn'} onClick={() => setSelectedId(r.id)}>
-                {r.name} · {r.status} · {r.playersCount}/{r.maxPlayers}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: 16 }}>
-          {!selected ? <span className="pill">Select a tournament</span> : null}
-          {selected ? (
-            <div className="col" style={{ gap: 10 }}>
-              <div className="row" style={{ flexWrap: 'wrap' }}>
-                <span className="pill" style={{ color: 'var(--text)' }}>{selected.name}</span>
-                <span className="pill">{selected.status}</span>
-                <span className="pill">{selected.players.length}/{selected.maxPlayers}</span>
-                <span className="pill">Host: {selected.createdByDisplayName}</span>
-              </div>
-
-              <div className="row" style={{ flexWrap: 'wrap' }}>
-                <button className="btn" disabled={busy || selected.status !== 'LOBBY'} onClick={() => void doAction('/api/tournaments/join', { tournamentId: selected.id })}>
-                  Join
-                </button>
-                <button className="btn" disabled={busy || selected.status !== 'LOBBY'} onClick={() => void doAction('/api/tournaments/leave', { tournamentId: selected.id })}>
-                  Leave
-                </button>
-                <button className="btn btnPrimary" disabled={busy || !selected.isHost || selected.status !== 'LOBBY'} onClick={() => void doAction('/api/tournaments/start', { tournamentId: selected.id })}>
-                  Start bracket
-                </button>
-              </div>
-
-              <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
-                <div className="help" style={{ marginBottom: 8 }}>Players</div>
-                <div className="row" style={{ flexWrap: 'wrap' }}>
-                  {selected.players.map((p) => (
-                    <span key={p.userId} className="pill">{p.displayName}</span>
-                  ))}
-                </div>
-              </div>
-
-              {selected.rounds.map((round) => (
-                <div key={round.roundIndex} className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
-                  <div className="help" style={{ marginBottom: 8 }}>Round {round.roundIndex + 1}</div>
-                  <div className="col">
-                    {round.matches.map((m) => (
-                      <div key={m.id} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                        <span className="pill">M{m.matchIndex + 1}</span>
-                        <span className="pill">{displayNameForUser(m.playerAUserId)} vs {displayNameForUser(m.playerBUserId)}</span>
-                        <span className="pill">{m.status}</span>
-                        <span className="pill">Winner: {displayNameForUser(m.winnerUserId)}</span>
-                        {m.roomCode ? <a className="btn" href={`/room/${m.roomCode}/lobby`}>Room {m.roomCode}</a> : null}
-                        {selected.isHost && selected.status === 'LIVE' && m.playerAUserId && m.playerBUserId && !m.winnerUserId ? (
-                          <>
-                            <button className="btn" onClick={() => void assignRoom(m.id)} disabled={busy}>
-                              Set room
-                            </button>
-                            <button className="btn" onClick={() => void doAction('/api/tournaments/match/report', { tournamentId: selected.id, matchId: m.id, winnerUserId: m.playerAUserId })} disabled={busy}>
-                              A wins
-                            </button>
-                            <button className="btn" onClick={() => void doAction('/api/tournaments/match/report', { tournamentId: selected.id, matchId: m.id, winnerUserId: m.playerBUserId })} disabled={busy}>
-                              B wins
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
+      <div className="card" style={{ padding: 16 }}>
+        <div style={{ fontSize: 16, marginBottom: 8 }}>Open tournaments</div>
+        <div className="col">
+          {rows.length < 1 ? <span className="pill">No tournaments yet</span> : null}
+          {rows.map((r) => (
+            <a key={r.id} className="btn" href={`/tournaments/${encodeURIComponent(r.id)}`}>
+              {r.name} · {r.participationMode} · {r.status} · {r.playersCount}/{r.maxPlayers}
+            </a>
+          ))}
         </div>
       </div>
 

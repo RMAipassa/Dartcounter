@@ -125,6 +125,11 @@ export type RoomSnapshot = {
     title: string
     isPublic: boolean
     createdAt: number
+    tournamentMatch?: {
+      tournamentId: string
+      matchId: string
+      participationMode: 'ONLINE' | 'LOCAL'
+    } | null
     autodartsActiveUserId?: string | null
     autodartsRoutingDebug?: {
       enabled: boolean
@@ -160,6 +165,7 @@ export type TournamentPlayer = {
   userId: string
   displayName: string
   joinedAt: number
+  source?: 'USER' | 'LOCAL'
 }
 
 export type TournamentMatch = {
@@ -170,7 +176,9 @@ export type TournamentMatch = {
   playerBUserId: string | null
   winnerUserId: string | null
   roomCode: string | null
-  status: 'PENDING' | 'READY' | 'LIVE' | 'FINISHED' | 'BYE'
+  status: 'PENDING' | 'READY' | 'LIVE' | 'FINISHED' | 'BYE' | 'NO_SHOW'
+  resolved?: boolean
+  joinDeadlineAt?: number | null
 }
 
 export type TournamentRound = {
@@ -187,10 +195,22 @@ export type Tournament = {
   status: 'LOBBY' | 'LIVE' | 'FINISHED'
   format: 'SINGLE_ELIM'
   maxPlayers: number
+  participationMode: 'ONLINE' | 'LOCAL'
   settings: GameSettings
   players: TournamentPlayer[]
+  seedingMode: 'JOIN_ORDER' | 'RANDOM' | 'MANUAL'
+  manualSeedUserIds: string[]
   rounds: TournamentRound[]
   winnerUserId: string | null
   isHost?: boolean
   isParticipant?: boolean
+}
+
+export type TournamentInvite = {
+  id: string
+  tournamentId: string
+  tournamentName: string
+  fromUserId: string
+  fromDisplayName: string
+  createdAt: number
 }
