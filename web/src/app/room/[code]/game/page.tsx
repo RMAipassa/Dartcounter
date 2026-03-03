@@ -255,6 +255,7 @@ export default function GamePage() {
   const leg = match?.leg
   const settings = match?.settings
   const players = match?.players ?? []
+  const desktopScoreGridClass = players.length >= 4 ? 'grid4' : players.length === 2 ? 'grid2' : 'grid3'
   const currentIdx = leg?.currentPlayerIndex ?? -1
   const currentPlayer = currentIdx >= 0 ? players[currentIdx] : null
   const finished = match?.status === 'FINISHED'
@@ -299,8 +300,6 @@ export default function GamePage() {
       : null
 
   const isMobile = useMediaQuery('(max-width: 520px)')
-  const showOnlyCurrent = players.length > 3
-  const visiblePlayers = showOnlyCurrent && currentPlayer ? [currentPlayer] : players
 
   const [scoresTab, setScoresTab] = useState<'RECENT' | 'ALL'>('RECENT')
 
@@ -380,6 +379,13 @@ export default function GamePage() {
         if (res?.code === 'AUTODARTS_PER_DART_ONLY') setEntryMode('PER_DART')
         throw new Error(res?.message ?? 'Failed')
       }
+
+      const submittedMode = override?.mode ?? entryMode
+      if (submittedMode === 'TOTAL') {
+        setTotal(0)
+        setTotalText('0')
+      }
+
       setNeedDarts(null)
       voicePendingSubmitRef.current = null
       if (submittingAutodartsSuggestion) {
@@ -738,13 +744,13 @@ export default function GamePage() {
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 16, marginBottom: 6 }}>Scoreboard</div>
-                <div className="help">{showOnlyCurrent ? 'Showing current player only.' : 'Each player has their own table.'}</div>
+                <div className="help">Each player has their own table.</div>
               </div>
               {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
             </div>
 
-            <div className={showOnlyCurrent ? 'col' : 'grid3'} style={{ marginTop: 10 }}>
-              {visiblePlayers.map((p) => (
+            <div className={desktopScoreGridClass} style={{ marginTop: 10 }}>
+              {players.map((p) => (
                 <PlayerPanel
                   key={p.id}
                   player={p}
@@ -804,7 +810,7 @@ export default function GamePage() {
           <ScoresByPlayer
             tab={scoresTab}
             turns={leg?.turns ?? []}
-            players={showOnlyCurrent ? visiblePlayers : players}
+            players={players}
             recentVisitsPerPlayer={6}
           />
         </div>
@@ -912,11 +918,23 @@ function MobileGame({
   finished: boolean
 }) {
   const p = currentPlayer
-  const stats = p ? statsByPlayerId[p.id] : undefined
-  const ps = p ? leg?.players?.find((x) => x.playerId === p.id) : undefined
+  const playerViews = players.map((pl, idx) => {
+    const stats = statsByPlayerId[pl.id]
+    const ps = leg?.players?.find((x) => x.playerId === pl.id)
+    return {
+      player: pl,
+      colorIndex: idx % 6,
+      isCurrent: p?.id === pl.id,
+      stats,
+      remaining: ps?.remaining ?? null,
+      last: lastScoreForPlayer(leg?.turns ?? [], pl.id),
+      thrown: dartsThrownForPlayer(leg?.turns ?? [], pl.id),
+    }
+  })
 
-  const last = p ? lastScoreForPlayer(leg?.turns ?? [], p.id) : null
-  const thrown = p ? dartsThrownForPlayer(leg?.turns ?? [], p.id) : 0
+  const currentView = playerViews.find((v) => v.isCurrent) ?? playerViews[0]
+  const otherViews = playerViews.filter((v) => !v.isCurrent)
+  const isTwoPlayer = playerViews.length === 2
 
   return (
     <div className="mobileGame">
@@ -960,41 +978,74 @@ function MobileGame({
         </button>
       </div>
 
-      <div className={canSubmit && !finished ? `playerCard playerCardUp` : 'playerCard'}>
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <div className="row">
-            <span className="pill" style={{ color: 'var(--text)' }}>{p?.name ?? 'Waiting...'}</span>
-            {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
+      {isTwoPlayer ? (
+        <div className="mobileScoreDuo">
+          {playerViews.map((v) => (
+            <div
+              key={v.player.id}
+              className={v.isCurrent ? 'mobileScorePane mobileScorePaneActive' : 'mobileScorePane'}
+              style={{ ['--score-accent' as any]: scoreAccentForIndex(v.colorIndex) }}
+            >
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="pill" style={{ color: 'var(--text)' }}>{v.player.name}</span>
+                <span className="pill">{v.stats?.legsWon ?? 0} legs</span>
+              </div>
+              <div className="mobileScorePaneBig">{v.remaining ?? '-'}</div>
+              <div className="col" style={{ gap: 6 }}>
+                <span className="pill">Avg: {v.stats?.threeDartAvg ?? '-'}</span>
+                <span className="pill">Last: {v.last ?? '-'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={canSubmit && !finished ? `playerCard playerCardUp` : 'playerCard'}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="row">
+              <span className="pill" style={{ color: 'var(--text)' }}>{currentView?.player.name ?? 'Waiting...'}</span>
+              {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
+            </div>
+            {match ? (
+              <span className="pill">
+                {match.settings.startScore} · {match.settings.doubleIn ? 'DI' : 'SI'} · {match.settings.doubleOut ? 'DO' : match.settings.masterOut ? 'MO' : 'SO'}
+              </span>
+            ) : null}
           </div>
-          {match ? (
-            <span className="pill">
-              {match.settings.startScore} · {match.settings.doubleIn ? 'DI' : 'SI'} · {match.settings.doubleOut ? 'DO' : match.settings.masterOut ? 'MO' : 'SO'}
-            </span>
+
+          <div className="row" style={{ flexWrap: 'wrap', marginTop: 10 }}>
+            {match?.settings?.setsEnabled ? <span className="pill">Sets won: {currentView?.stats?.setsWon ?? 0}</span> : null}
+            <span className="pill">Legs won: {currentView?.stats?.legsWon ?? 0}</span>
+            {autodartsControllingTurn ? <span className="pill" style={{ color: 'var(--accent)' }}>Autodarts scoring</span> : null}
+          </div>
+
+          <div className="mobileScoreMainRow">
+            <div className="playerBigNum">{currentView?.remaining ?? '-'}</div>
+            {otherViews.length > 0 ? (
+              <div className="mobileScoreOthers">
+                {otherViews.map((v) => (
+                  <div key={v.player.id} className="mobileScoreMini" style={{ ['--score-accent' as any]: scoreAccentForIndex(v.colorIndex) }}>
+                    <span className="mobileScoreMiniName">{v.player.name}</span>
+                    <span className="mobileScoreMiniRem">{v.remaining ?? '-'}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
+                <span className="pill">3-dart avg: {currentView?.stats?.threeDartAvg ?? '-'}</span>
+                <span className="pill">Last score: {currentView?.last ?? '-'}</span>
+                <span className="pill">Darts thrown: {currentView?.thrown ?? 0}</span>
+              </div>
+            )}
+          </div>
+
+          {checkoutSuggestion ? (
+            <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
+              <span className="pill">Checkout</span>
+              <span className="pill" style={{ color: 'var(--text)' }}>{checkoutSuggestion.labels.join('  ')}</span>
+            </div>
           ) : null}
         </div>
-
-        <div className="row" style={{ flexWrap: 'wrap', marginTop: 10 }}>
-          {match?.settings?.setsEnabled ? <span className="pill">Sets won: {stats?.setsWon ?? 0}</span> : null}
-          <span className="pill">Legs won: {stats?.legsWon ?? 0}</span>
-          {autodartsControllingTurn ? <span className="pill" style={{ color: 'var(--accent)' }}>Autodarts scoring</span> : null}
-        </div>
-
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
-          <div className="playerBigNum">{ps?.remaining ?? '-'}</div>
-          <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
-            <span className="pill">3-dart avg: {stats?.threeDartAvg ?? '-'}</span>
-            <span className="pill">Last score: {last ?? '-'}</span>
-            <span className="pill">Darts thrown: {thrown}</span>
-          </div>
-        </div>
-
-        {checkoutSuggestion ? (
-          <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
-            <span className="pill">Checkout</span>
-            <span className="pill" style={{ color: 'var(--text)' }}>{checkoutSuggestion.labels.join('  ')}</span>
-          </div>
-        ) : null}
-      </div>
+      )}
 
       <div className="turnBanner">
         {finished
@@ -1029,6 +1080,11 @@ function MobileGame({
       />
     </div>
   )
+}
+
+function scoreAccentForIndex(idx: number): string {
+  const palette = ['#ff6b5b', '#ffa726', '#5dd5b8', '#7ea9ff', '#d78bff', '#ffd166']
+  return palette[((idx % palette.length) + palette.length) % palette.length]
 }
 
 function lastScoreForPlayer(turns: MatchSnapshot['leg']['turns'], playerId: string): number | null {
