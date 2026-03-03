@@ -402,6 +402,14 @@ function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d:
   const kind = kindFromDart(current)
   const needsSeg = kind === 'S' || kind === 'D' || kind === 'T'
 
+  useEffect(() => {
+    const allMisses = darts.every((d) => d.multiplier === 0)
+    if (allMisses) {
+      setActive(0)
+      setPanel('KIND')
+    }
+  }, [darts])
+
   function setDart(i: 0 | 1 | 2, next: Dart) {
     const out = darts.map((d, idx) => (idx === i ? next : d))
     onChange(out)
@@ -461,8 +469,24 @@ function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d:
         </div>
       )}
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <button className="btn" onClick={() => setActive((a) => (a === 0 ? 0 : ((a - 1) as 0 | 1 | 2)))}>Back</button>
-        <button className="btn btnPrimary" onClick={() => setActive((a) => (a === 2 ? 2 : ((a + 1) as 0 | 1 | 2)))}>Next</button>
+        <button
+          className="btn"
+          onClick={() => {
+            setActive((a) => (a === 0 ? 0 : ((a - 1) as 0 | 1 | 2)))
+            setPanel('KIND')
+          }}
+        >
+          Back
+        </button>
+        <button
+          className="btn btnPrimary"
+          onClick={() => {
+            setActive((a) => (a === 2 ? 2 : ((a + 1) as 0 | 1 | 2)))
+            setPanel('KIND')
+          }}
+        >
+          Next
+        </button>
       </div>
     </div>
   )
