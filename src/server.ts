@@ -33,6 +33,16 @@ import {
   listDailyCheckoutArchive,
   submitDailyCheckout,
 } from './daily-checkout/store'
+import {
+  assignMatchRoom,
+  createTournament,
+  getTournament,
+  joinTournament,
+  leaveTournament,
+  listTournaments,
+  reportMatchWinner,
+  startTournament,
+} from './tournaments/store'
 import { GameRuleError } from './game/errors'
 import type { AroundSettings, Dart, GameSettings, TurnInput, TurnRecord, X01Settings } from './game/types'
 import { computeAroundLegSnapshot, validateAroundSettings } from './game/around'
@@ -189,6 +199,28 @@ const friendRemoveSchema = z.object({
 
 const friendBlockSchema = z.object({
   friendUserId: z.string().trim().min(1).max(128),
+})
+
+const tournamentCreateSchema = z.object({
+  name: z.string().trim().min(1).max(64),
+  maxPlayers: z.number().int().min(2).max(128).optional(),
+  settings: z.any(),
+})
+
+const tournamentIdSchema = z.object({
+  tournamentId: z.string().trim().min(1).max(128),
+})
+
+const tournamentAssignRoomSchema = z.object({
+  tournamentId: z.string().trim().min(1).max(128),
+  matchId: z.string().trim().min(1).max(128),
+  roomCode: z.string().trim().min(1).max(16),
+})
+
+const tournamentReportWinnerSchema = z.object({
+  tournamentId: z.string().trim().min(1).max(128),
+  matchId: z.string().trim().min(1).max(128),
+  winnerUserId: z.string().trim().min(1).max(128),
 })
 
 const dailyCheckoutSubmitSchema = z.object({
@@ -611,6 +643,168 @@ app.get('/api/daily-checkout/archive', (req, res) => {
   const user = getUserBySessionToken(token)
   const days = listDailyCheckoutArchive({ userId: user?.id ?? null })
   res.status(200).json({ ok: true, days })
+})
+
+app.get('/api/tournaments', (req, res) => {
+  const token = bearerTokenFromReq(req)
+  const me = getUserBySessionToken(token)
+  const rows = listTournaments().map((t) => ({
+    id: t.id,
+    name: t.name,
+    createdAt: t.createdAt,
+    createdByDisplayName: t.createdByDisplayName,
+    status: t.status,
+    format: t.format,
+    playersCount: t.players.length,
+    maxPlayers: t.maxPlayers,
+    isHost: me ? t.createdByUserId === me.id : false,
+    isParticipant: me ? t.players.some((p) => p.userId === me.id) : false,
+    winnerUserId: t.winnerUserId,
+  }))
+  res.status(200).json({ ok: true, tournaments: rows })
+})
+
+app.get('/api/tournaments/:id', (req, res) => {
+  try {
+    const token = bearerTokenFromReq(req)
+    const me = getUserBySessionToken(token)
+    const t = getTournament(String(req.params.id ?? ''))
+    res.status(200).json({
+      ok: true,
+      tournament: {
+        ...t,
+        isHost: me ? t.createdByUserId === me.id : false,
+        isParticipant: me ? t.players.some((p) => p.userId === me.id) : false,
+      },
+    })
+  } catch {
+    res.status(404).json({ ok: false, message: 'Tournament not found' })
+  }
+})
+
+app.post('/api/tournaments/create', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentCreateSchema.parse(req.body)
+    validateGameSettings(body.settings)
+    const t = createTournament({
+      name: body.name,
+      createdByUserId: user.id,
+      createdByDisplayName: user.displayName,
+      settings: body.settings,
+      maxPlayers: body.maxPlayers ?? 16,
+    })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Invalid tournament create request' })
+  }
+})
+
+app.post('/api/tournaments/join', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentIdSchema.parse(req.body)
+    const t = joinTournament({ tournamentId: body.tournamentId, userId: user.id, displayName: user.displayName })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch (e: any) {
+    const code = String(e?.message ?? '')
+    const msg =
+      code === 'TOURNAMENT_ALREADY_STARTED'
+        ? 'Tournament already started'
+        : code === 'TOURNAMENT_FULL'
+          ? 'Tournament is full'
+          : 'Could not join tournament'
+    res.status(400).json({ ok: false, message: msg })
+  }
+})
+
+app.post('/api/tournaments/leave', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentIdSchema.parse(req.body)
+    const t = leaveTournament({ tournamentId: body.tournamentId, userId: user.id })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch (e: any) {
+    if (String(e?.message ?? '') === 'TOURNAMENT_DELETED_EMPTY') {
+      res.status(200).json({ ok: true, deleted: true })
+      return
+    }
+    res.status(400).json({ ok: false, message: 'Could not leave tournament' })
+  }
+})
+
+app.post('/api/tournaments/start', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentIdSchema.parse(req.body)
+    const t = startTournament({ tournamentId: body.tournamentId, requestedByUserId: user.id })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch (e: any) {
+    const code = String(e?.message ?? '')
+    const msg =
+      code === 'TOURNAMENT_HOST_REQUIRED'
+        ? 'Only the tournament host can start it'
+        : code === 'TOURNAMENT_NEEDS_PLAYERS'
+          ? 'Need at least 2 players'
+          : 'Could not start tournament'
+    res.status(400).json({ ok: false, message: msg })
+  }
+})
+
+app.post('/api/tournaments/match/room', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentAssignRoomSchema.parse(req.body)
+    const t = assignMatchRoom({
+      tournamentId: body.tournamentId,
+      requestedByUserId: user.id,
+      matchId: body.matchId,
+      roomCode: body.roomCode,
+    })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Could not assign room code to match' })
+  }
+})
+
+app.post('/api/tournaments/match/report', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentReportWinnerSchema.parse(req.body)
+    const t = reportMatchWinner({
+      tournamentId: body.tournamentId,
+      requestedByUserId: user.id,
+      matchId: body.matchId,
+      winnerUserId: body.winnerUserId,
+    })
+    res.status(200).json({ ok: true, tournament: t })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Could not report match winner' })
+  }
 })
 
 app.get('/api/autodarts/status', (_req, res) => {

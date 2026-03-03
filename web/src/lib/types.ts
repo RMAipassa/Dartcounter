@@ -155,3 +155,42 @@ export type PublicRoom = {
   playersCount: number
   clientsCount: number
 }
+
+export type TournamentPlayer = {
+  userId: string
+  displayName: string
+  joinedAt: number
+}
+
+export type TournamentMatch = {
+  id: string
+  roundIndex: number
+  matchIndex: number
+  playerAUserId: string | null
+  playerBUserId: string | null
+  winnerUserId: string | null
+  roomCode: string | null
+  status: 'PENDING' | 'READY' | 'LIVE' | 'FINISHED' | 'BYE'
+}
+
+export type TournamentRound = {
+  roundIndex: number
+  matches: TournamentMatch[]
+}
+
+export type Tournament = {
+  id: string
+  name: string
+  createdAt: number
+  createdByUserId: string
+  createdByDisplayName: string
+  status: 'LOBBY' | 'LIVE' | 'FINISHED'
+  format: 'SINGLE_ELIM'
+  maxPlayers: number
+  settings: GameSettings
+  players: TournamentPlayer[]
+  rounds: TournamentRound[]
+  winnerUserId: string | null
+  isHost?: boolean
+  isParticipant?: boolean
+}

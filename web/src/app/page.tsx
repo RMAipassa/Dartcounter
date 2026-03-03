@@ -66,15 +66,6 @@ export default function HomePage() {
           <span className="mobileHomeTileTitle">Public Lobbies</span>
           <span className="mobileHomeTileSub">Browse open rooms</span>
         </a>
-        <a className="mobileHomeTile" href="/account">
-          <span className="mobileHomeTileIcon mobileHomeTileIconBlue">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 17V9m6 8V5m6 12v-6" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
-            </svg>
-          </span>
-          <span className="mobileHomeTileTitle">Account</span>
-          <span className="mobileHomeTileSub">Friends and stats</span>
-        </a>
         <a className="mobileHomeTile" href="/daily-checkout">
           <span className="mobileHomeTileIcon mobileHomeTileIconMint">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -84,6 +75,24 @@ export default function HomePage() {
           </span>
           <span className="mobileHomeTileTitle">Daily Checkout</span>
           <span className="mobileHomeTileSub">Wordle-style daily challenge</span>
+        </a>
+        <a className="mobileHomeTile" href="/account">
+          <span className="mobileHomeTileIcon mobileHomeTileIconBlue">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 17V9m6 8V5m6 12v-6" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="mobileHomeTileTitle">Account</span>
+          <span className="mobileHomeTileSub">Friends and stats</span>
+        </a>
+        <a className="mobileHomeTile" href="/tournaments">
+          <span className="mobileHomeTileIcon mobileHomeTileIconRose">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 5h12v2a6 6 0 0 1-4 5.64V16h3v2H7v-2h3v-3.36A6 6 0 0 1 6 7V5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="mobileHomeTileTitle">Tournaments</span>
+          <span className="mobileHomeTileSub">Single-elim brackets</span>
         </a>
       </div>
 

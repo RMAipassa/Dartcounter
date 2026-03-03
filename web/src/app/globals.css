@@ -50,7 +50,7 @@ a {
   max-width: 980px;
   margin: 0 auto;
   padding: var(--pad);
-  padding-bottom: 108px;
+  padding-bottom: 132px;
 }
 
 :root[data-ui-density='compact'] .container {
@@ -806,7 +806,7 @@ a {
 
 .mobileDock {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
@@ -991,7 +991,7 @@ a {
   }
 
   .container {
-    padding-bottom: 94px;
+    padding-bottom: 126px;
   }
 
   .topbar {
