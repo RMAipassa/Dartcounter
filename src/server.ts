@@ -52,6 +52,7 @@ import {
   respondTournamentInvite,
   resolveTournamentNoShow,
   sendTournamentInvite,
+  setMatchReady,
   setTournamentSeeding,
   startTournament,
 } from './tournaments/store'
@@ -256,6 +257,12 @@ const tournamentReportWinnerSchema = z.object({
   tournamentId: z.string().trim().min(1).max(128),
   matchId: z.string().trim().min(1).max(128),
   winnerUserId: z.string().trim().min(1).max(128),
+})
+
+const tournamentMatchReadySchema = z.object({
+  tournamentId: z.string().trim().min(1).max(128),
+  matchId: z.string().trim().min(1).max(128),
+  ready: z.boolean().optional(),
 })
 
 const tournamentSeedingSchema = z.object({
@@ -943,6 +950,28 @@ app.post('/api/tournaments/match/report', (req, res) => {
   }
 })
 
+app.post('/api/tournaments/match/ready', (req, res) => {
+  const user = requireAuthedUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Not authenticated' })
+    return
+  }
+  try {
+    const body = tournamentMatchReadySchema.parse(req.body)
+    const t = setMatchReady({
+      tournamentId: body.tournamentId,
+      matchId: body.matchId,
+      userId: user.id,
+      ready: body.ready ?? true,
+    })
+    const roomCode = autoCreateTournamentRoomIfReady(body.tournamentId, body.matchId)
+    const updated = getTournament(t.id)
+    res.status(200).json({ ok: true, tournament: updated, roomCode })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Could not update ready state' })
+  }
+})
+
 app.get('/api/tournaments/invites/me', (req, res) => {
   const user = requireAuthedUser(req)
   if (!user) {
@@ -1314,6 +1343,46 @@ function processTournamentNoShowForfeits(): void {
       // ignore stale room/tournament records
     }
   }
+}
+
+function autoCreateTournamentRoomIfReady(tournamentId: string, matchId: string): string | null {
+  const t = getTournament(tournamentId)
+  const match = t.rounds.flatMap((r) => r.matches).find((m) => m.id === matchId)
+  if (!match) return null
+  if (match.roomCode || match.winnerUserId || match.resolved) return match.roomCode ?? null
+  if (!match.playerAUserId || !match.playerBUserId) return null
+  const ready = new Set(match.readyUserIds ?? [])
+  if (!ready.has(match.playerAUserId) || !ready.has(match.playerBUserId)) return null
+
+  const participants = getTournamentMatchParticipants({ tournamentId, matchId })
+  if (participants.length < 2) return null
+
+  const room = createRoom({ hostName: `${t.name} host`, settings: t.settings })
+  room.title = `${t.name} • Match`
+  room.isPublic = false
+  room.match.players = []
+  room.match.legsWonByPlayerId = {}
+  room.match.legsWonInCurrentSetByPlayerId = {}
+  room.match.setsWonByPlayerId = {}
+  room.controllerSocketIdByPlayerId = {}
+  room.playerUserIdByPlayerId = {}
+
+  for (const p of participants) {
+    const player = addPlayer(room, p.displayName)
+    if (p.source === 'USER') room.playerUserIdByPlayerId[player.id] = p.userId
+  }
+  room.match.currentLegIndex = 0
+  room.match.legs[0].startingPlayerIndex = 0
+  room.match.status = 'LIVE'
+
+  assignMatchRoom({
+    tournamentId,
+    requestedByUserId: t.createdByUserId,
+    matchId,
+    roomCode: room.code,
+  })
+
+  return room.code
 }
 
 function validateGameSettings(settings: GameSettings): void {
@@ -1707,12 +1776,15 @@ function submitTurnForCurrentPlayer(args: {
     room.statsRecorded = true
 
     const tournamentWinnerUserId = winnerId ? room.playerUserIdByPlayerId[winnerId] ?? null : null
-    if (tournamentWinnerUserId) {
-      try {
-        autoReportWinnerByRoom({ roomCode: args.roomCode, winnerUserId: tournamentWinnerUserId })
-      } catch {
-        // no-op
-      }
+    const tournamentWinnerName = winnerId ? room.match.players.find((p) => p.id === winnerId)?.name ?? null : null
+    try {
+      autoReportWinnerByRoom({
+        roomCode: args.roomCode,
+        winnerUserId: tournamentWinnerUserId,
+        winnerDisplayName: tournamentWinnerName,
+      })
+    } catch {
+      // no-op
     }
   }
 

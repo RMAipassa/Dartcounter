@@ -179,6 +179,7 @@ export type TournamentMatch = {
   status: 'PENDING' | 'READY' | 'LIVE' | 'FINISHED' | 'BYE' | 'NO_SHOW'
   resolved?: boolean
   joinDeadlineAt?: number | null
+  readyUserIds?: string[]
 }
 
 export type TournamentRound = {

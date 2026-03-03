@@ -26,6 +26,7 @@ export type TournamentMatch = {
   status: TournamentMatchStatus
   resolved: boolean
   joinDeadlineAt: number | null
+  readyUserIds: string[]
 }
 
 export type TournamentRound = {
@@ -232,6 +233,7 @@ export function startTournament(args: { tournamentId: string; requestedByUserId:
       status: 'PENDING',
       resolved: false,
       joinDeadlineAt: null,
+      readyUserIds: [],
     })
   }
   rounds.push({ roundIndex: 0, matches: firstMatches })
@@ -251,6 +253,7 @@ export function startTournament(args: { tournamentId: string; requestedByUserId:
         status: 'PENDING',
         resolved: false,
         joinDeadlineAt: null,
+        readyUserIds: [],
       })
     }
     rounds.push({ roundIndex: r, matches })
@@ -355,14 +358,20 @@ export function resolveTournamentNoShow(args: {
     m.winnerUserId = m.playerAUserId
     m.status = 'FINISHED'
     m.resolved = true
+    m.readyUserIds = []
+    m.joinDeadlineAt = null
   } else if (!aIn && bIn) {
     m.winnerUserId = m.playerBUserId
     m.status = 'FINISHED'
     m.resolved = true
+    m.readyUserIds = []
+    m.joinDeadlineAt = null
   } else {
     m.winnerUserId = null
     m.status = 'NO_SHOW'
     m.resolved = true
+    m.readyUserIds = []
+    m.joinDeadlineAt = null
   }
 
   normalizeBracket(t)
@@ -414,6 +423,7 @@ export function assignMatchRoom(args: {
   match.status = 'LIVE'
   match.joinDeadlineAt = t.participationMode === 'ONLINE' ? Date.now() + 3 * 60_000 : null
   match.resolved = false
+  match.readyUserIds = []
   persistDb()
   return t
 }
@@ -436,6 +446,28 @@ export function attachRoomToMatchByParticipant(args: {
   match.status = 'LIVE'
   match.joinDeadlineAt = t.participationMode === 'ONLINE' ? Date.now() + 3 * 60_000 : null
   match.resolved = false
+  match.readyUserIds = []
+  persistDb()
+  return t
+}
+
+export function setMatchReady(args: {
+  tournamentId: string
+  matchId: string
+  userId: string
+  ready: boolean
+}): Tournament {
+  const t = getTournament(args.tournamentId)
+  if (t.participationMode !== 'ONLINE') throw new Error('TOURNAMENT_ONLINE_ONLY')
+  const match = findMatch(t, args.matchId)
+  if (t.status !== 'LIVE') throw new Error('TOURNAMENT_NOT_LIVE')
+  if (match.winnerUserId || match.resolved) throw new Error('TOURNAMENT_MATCH_DONE')
+  if (match.playerAUserId !== args.userId && match.playerBUserId !== args.userId) throw new Error('TOURNAMENT_MATCH_NOT_YOURS')
+
+  const current = new Set(match.readyUserIds)
+  if (args.ready) current.add(args.userId)
+  else current.delete(args.userId)
+  match.readyUserIds = [...current]
   persistDb()
   return t
 }
@@ -458,23 +490,37 @@ export function reportMatchWinner(args: {
   match.status = 'FINISHED'
   match.resolved = true
   match.joinDeadlineAt = null
+  match.readyUserIds = []
   normalizeBracket(t)
   persistDb()
   return t
 }
 
-export function autoReportWinnerByRoom(args: { roomCode: string; winnerUserId: string }): Tournament | null {
+export function autoReportWinnerByRoom(args: { roomCode: string; winnerUserId?: string | null; winnerDisplayName?: string | null }): Tournament | null {
   const roomCode = args.roomCode.toUpperCase()
   for (const t of Object.values(db.tournaments)) {
     if (t.status !== 'LIVE') continue
     for (const r of t.rounds) {
       const m = r.matches.find((x) => x.roomCode?.toUpperCase() === roomCode && !x.winnerUserId)
       if (!m) continue
-      if (m.playerAUserId !== args.winnerUserId && m.playerBUserId !== args.winnerUserId) return null
-      m.winnerUserId = args.winnerUserId
+
+      let winnerUserId: string | null = null
+      if (args.winnerUserId && (m.playerAUserId === args.winnerUserId || m.playerBUserId === args.winnerUserId)) {
+        winnerUserId = args.winnerUserId
+      } else if (args.winnerDisplayName) {
+        const name = args.winnerDisplayName.trim().toLowerCase()
+        const aName = t.players.find((p) => p.userId === m.playerAUserId)?.displayName?.trim().toLowerCase()
+        const bName = t.players.find((p) => p.userId === m.playerBUserId)?.displayName?.trim().toLowerCase()
+        if (aName && aName === name) winnerUserId = m.playerAUserId
+        else if (bName && bName === name) winnerUserId = m.playerBUserId
+      }
+
+      if (!winnerUserId) return null
+      m.winnerUserId = winnerUserId
       m.status = 'FINISHED'
       m.resolved = true
       m.joinDeadlineAt = null
+      m.readyUserIds = []
       normalizeBracket(t)
       persistDb()
       return t
@@ -571,6 +617,7 @@ function normalizeBracket(t: Tournament): void {
         m.roomCode = null
         m.joinDeadlineAt = null
         m.resolved = false
+        m.readyUserIds = []
         m.status = 'PENDING'
         continue
       }
@@ -580,6 +627,7 @@ function normalizeBracket(t: Tournament): void {
         m.roomCode = null
         m.joinDeadlineAt = null
         m.resolved = true
+        m.readyUserIds = []
         m.status = 'BYE'
         continue
       }
@@ -588,6 +636,7 @@ function normalizeBracket(t: Tournament): void {
         m.roomCode = null
         m.joinDeadlineAt = null
         m.resolved = true
+        m.readyUserIds = []
         m.status = 'BYE'
         continue
       }
@@ -596,6 +645,7 @@ function normalizeBracket(t: Tournament): void {
         m.roomCode = null
         m.joinDeadlineAt = null
         m.resolved = true
+        m.readyUserIds = []
         m.status = 'NO_SHOW'
         continue
       }
@@ -603,9 +653,11 @@ function normalizeBracket(t: Tournament): void {
       if (m.winnerUserId) {
         m.resolved = true
         m.joinDeadlineAt = null
+        m.readyUserIds = []
         m.status = 'FINISHED'
       } else {
         m.resolved = false
+        if (m.roomCode) m.readyUserIds = []
         m.status = m.roomCode ? 'LIVE' : 'READY'
       }
     }
@@ -747,6 +799,7 @@ function loadDb(): TournamentsDb {
                         : 'PENDING',
                     resolved: typeof m?.resolved === 'boolean' ? m.resolved : Boolean(m?.winnerUserId || m?.status === 'BYE'),
                     joinDeadlineAt: typeof m?.joinDeadlineAt === 'number' ? m.joinDeadlineAt : null,
+                    readyUserIds: Array.isArray(m?.readyUserIds) ? m.readyUserIds.filter((x: any) => typeof x === 'string') : [],
                   }))
                 : [],
             }))

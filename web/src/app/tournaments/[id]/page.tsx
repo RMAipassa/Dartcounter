@@ -17,15 +17,27 @@ export default function TournamentDetailPage() {
   const [friends, setFriends] = useState<Array<{ userId: string; displayName: string }>>([])
   const [pendingInvites, setPendingInvites] = useState<TournamentInvite[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
+  const [meUserId, setMeUserId] = useState<string | null>(null)
+  const [meDisplayName, setMeDisplayName] = useState<string>('Player')
   const [seedingMode, setSeedingMode] = useState<'JOIN_ORDER' | 'RANDOM' | 'MANUAL'>('JOIN_ORDER')
   const [manualSeedIds, setManualSeedIds] = useState<string[]>([])
   const [localPlayerName, setLocalPlayerName] = useState('')
+  const [autoJoinAttemptedRoom, setAutoJoinAttemptedRoom] = useState<string | null>(null)
 
   useEffect(() => {
     if (!tournamentId) return
     void refreshAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId, serverUrl])
+
+  useEffect(() => {
+    if (!t || t.participationMode !== 'ONLINE' || t.status !== 'LIVE') return
+    const timer = window.setInterval(() => {
+      void refreshTournament()
+    }, 5000)
+    return () => window.clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t?.id, t?.participationMode, t?.status])
 
   useEffect(() => {
     if (!t) return
@@ -49,8 +61,11 @@ export default function TournamentDetailPage() {
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.ok) return setIsAdmin(false)
       setIsAdmin(Boolean(data.isAdmin))
+      setMeUserId(typeof data.user?.id === 'string' ? data.user.id : null)
+      setMeDisplayName(typeof data.user?.displayName === 'string' ? data.user.displayName : 'Player')
     } catch {
       setIsAdmin(false)
+      setMeUserId(null)
     }
   }
 
@@ -168,7 +183,30 @@ export default function TournamentDetailPage() {
         tournamentMatchId: matchId,
       })
       if (!res?.ok) throw new Error(res?.message ?? 'Could not create room')
+      if (typeof res.hostSecret === 'string' && res.hostSecret) {
+        localStorage.setItem('dc_hostSecret', res.hostSecret)
+      }
+      localStorage.setItem('dc_name', fallbackName)
       window.location.href = `/room/${res.code}/lobby`
+    } catch (e: any) {
+      setToast(e?.message ?? String(e))
+    }
+  }
+
+  async function joinRoomAndGoGame(roomCode: string) {
+    try {
+      const token = localStorage.getItem('dc_authToken') ?? undefined
+      const displayName = meDisplayName || localStorage.getItem('dc_name') || 'Player'
+      const socket = getSocket(serverUrl)
+      const res = await socket.emitWithAck('room:join', {
+        code: roomCode,
+        name: displayName,
+        authToken: token,
+        asSpectator: false,
+      })
+      if (!res?.ok) throw new Error(res?.message ?? 'Could not join match room')
+      localStorage.setItem('dc_name', displayName)
+      window.location.href = `/room/${roomCode}/game`
     } catch (e: any) {
       setToast(e?.message ?? String(e))
     }
@@ -177,6 +215,15 @@ export default function TournamentDetailPage() {
   async function inviteFriend(friendUserId: string) {
     if (!t) return
     await doAction('/api/tournaments/invite', { tournamentId: t.id, toUserId: friendUserId })
+  }
+
+  async function setMatchReady(matchId: string, ready: boolean) {
+    if (!t) return
+    const data = await doAction('/api/tournaments/match/ready', { tournamentId: t.id, matchId, ready })
+    const roomCode = typeof data?.roomCode === 'string' ? data.roomCode : null
+    if (roomCode) {
+      await joinRoomAndGoGame(roomCode)
+    }
   }
 
   async function respondInvite(inviteId: string, accept: boolean) {
@@ -190,6 +237,29 @@ export default function TournamentDetailPage() {
     setToast('Share link copied')
     setTimeout(() => setToast(null), 1400)
   }
+
+  const myActiveOnlineMatch = useMemo(() => {
+    if (!t || !meUserId || t.participationMode !== 'ONLINE') return null
+    return (
+      t.rounds
+        .flatMap((r) => r.matches)
+        .find(
+          (m) =>
+            !m.winnerUserId &&
+            (m.playerAUserId === meUserId || m.playerBUserId === meUserId) &&
+            (m.status === 'READY' || m.status === 'LIVE'),
+        ) ?? null
+    )
+  }, [t, meUserId])
+
+  useEffect(() => {
+    const roomCode = myActiveOnlineMatch?.roomCode ?? null
+    if (!roomCode) return
+    if (autoJoinAttemptedRoom === roomCode) return
+    setAutoJoinAttemptedRoom(roomCode)
+    void joinRoomAndGoGame(roomCode)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myActiveOnlineMatch?.roomCode, autoJoinAttemptedRoom])
 
   return (
     <div className="col" style={{ gap: 16 }}>
@@ -249,6 +319,45 @@ export default function TournamentDetailPage() {
               ) : null}
             </div>
           </div>
+
+          {t.participationMode === 'ONLINE' && t.status === 'LIVE' && myActiveOnlineMatch ? (
+            <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
+              <div className="help" style={{ marginBottom: 8 }}>Your current match</div>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <span className="pill">R{myActiveOnlineMatch.roundIndex + 1} M{myActiveOnlineMatch.matchIndex + 1}</span>
+                <span className="pill">{displayNameForUser(myActiveOnlineMatch.playerAUserId)} vs {displayNameForUser(myActiveOnlineMatch.playerBUserId)}</span>
+                <span className="pill">Status: {myActiveOnlineMatch.status}</span>
+                <span className="pill">
+                  Ready: {myActiveOnlineMatch.readyUserIds?.length ?? 0}/2
+                </span>
+                {myActiveOnlineMatch.roomCode ? (
+                  <button className="btn btnPrimary" onClick={() => void joinRoomAndGoGame(myActiveOnlineMatch.roomCode!)} disabled={busy}>
+                    Join game now
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      className={myActiveOnlineMatch.readyUserIds?.includes(meUserId ?? '') ? 'btn' : 'btn btnPrimary'}
+                      onClick={() => void setMatchReady(myActiveOnlineMatch.id, true)}
+                      disabled={busy}
+                    >
+                      Ready
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => void setMatchReady(myActiveOnlineMatch.id, false)}
+                      disabled={busy}
+                    >
+                      Not ready
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="help" style={{ marginTop: 6 }}>
+                When both players are ready, a room is created and you are taken straight to the game.
+              </div>
+            </div>
+          ) : null}
 
           <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
             <div className="help" style={{ marginBottom: 8 }}>Players</div>
@@ -378,6 +487,9 @@ export default function TournamentDetailPage() {
                           <span className="pill" style={{ color: m.winnerUserId === m.playerBUserId ? 'var(--good)' : 'var(--text)' }}>{displayNameForUser(m.playerBUserId)}</span>
                         </div>
                         <span className="pill">Winner: {displayNameForUser(m.winnerUserId)}</span>
+                        {t.participationMode === 'ONLINE' && m.playerAUserId && m.playerBUserId && !m.winnerUserId ? (
+                          <span className="pill">Ready: {m.readyUserIds?.length ?? 0}/2</span>
+                        ) : null}
                         {m.roomCode ? <a className="btn" href={`/room/${m.roomCode}/lobby`}>Room {m.roomCode}</a> : null}
                       </div>
                     </div>

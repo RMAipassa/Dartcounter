@@ -315,11 +315,13 @@ export default function GamePage() {
 
   useEffect(() => {
     if (!finished) return
+    const tournamentId = snap?.room?.tournamentMatch?.tournamentId
     const t = window.setTimeout(() => {
-      router.replace(`/room/${code}/lobby`)
+      if (tournamentId) router.replace(`/tournaments/${encodeURIComponent(tournamentId)}`)
+      else router.replace(`/room/${code}/lobby`)
     }, 600)
     return () => window.clearTimeout(t)
-  }, [finished, router, code])
+  }, [finished, router, code, snap?.room?.tournamentMatch?.tournamentId])
 
   useEffect(() => {
     if (!autodartsPerDartOnly) return
