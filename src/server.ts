@@ -57,8 +57,9 @@ import {
   startTournament,
 } from './tournaments/store'
 import { GameRuleError } from './game/errors'
-import type { AroundSettings, Dart, GameSettings, TurnInput, TurnRecord, X01Settings } from './game/types'
+import type { AroundSettings, Dart, GameSettings, PracticeSettings, TurnInput, TurnRecord, X01Settings } from './game/types'
 import { computeAroundLegSnapshot, validateAroundSettings } from './game/around'
+import { applyPracticeTurn, computePracticeLegSnapshot, validatePracticeSettings } from './game/practice'
 import { AutodartsService } from './integrations/autodarts'
 import type { AutodartsDartEvent } from './integrations/autodarts'
 import type { AutodartsRuntimeMode } from './integrations/autodarts'
@@ -757,6 +758,10 @@ app.post('/api/tournaments/create', (req, res) => {
   try {
     const body = tournamentCreateSchema.parse(req.body)
     validateGameSettings(body.settings)
+    if (body.settings?.gameType === 'PRACTICE') {
+      res.status(400).json({ ok: false, message: 'Practice mode is not available for tournaments' })
+      return
+    }
     const t = createTournament({
       name: body.name,
       createdByUserId: user.id,
@@ -1130,7 +1135,16 @@ const aroundSettingsSchema = z.object({
   advanceByMultiplier: z.boolean(),
 })
 
-const gameSettingsSchema = z.union([x01SettingsSchema, aroundSettingsSchema])
+const practiceSettingsSchema = z.object({
+  gameType: z.literal('PRACTICE'),
+  practiceMode: z.union([z.literal('RANDOM_CHECKOUT'), z.literal('DOUBLES'), z.literal('TRIPLES'), z.literal('X01')]),
+  startScore: z.number().int().min(2).max(10001),
+  legsToWin: z.literal(1),
+  setsEnabled: z.literal(false),
+  setsToWin: z.literal(0),
+})
+
+const gameSettingsSchema = z.union([x01SettingsSchema, aroundSettingsSchema, practiceSettingsSchema])
 
 const challengeMatchSettings: X01Settings = {
   gameType: 'X01',
@@ -1390,10 +1404,56 @@ function validateGameSettings(settings: GameSettings): void {
     validateAroundSettings(settings as AroundSettings)
     return
   }
+  if (settings.gameType === 'PRACTICE') {
+    validatePracticeSettings(settings as PracticeSettings)
+    return
+  }
   validateX01Settings(settings as X01Settings)
 }
 
+function validateLobbyStartScorePreset(settings: GameSettings): void {
+  const allowed = new Set([121, 170, 301, 501])
+  if (settings.gameType === 'X01' && !allowed.has(settings.startScore)) {
+    throw new GameRuleError('INVALID_SETTINGS', 'X01 start score must be one of 121, 170, 301, 501')
+  }
+  if (settings.gameType === 'PRACTICE' && settings.practiceMode === 'X01' && !allowed.has(settings.startScore)) {
+    throw new GameRuleError('INVALID_SETTINGS', 'Practice X01 start score must be one of 121, 170, 301, 501')
+  }
+}
+
 function computeMatchSnapshotForRoom(match: any) {
+  if (match.settings.gameType === 'PRACTICE') {
+    const leg = match.legs[match.currentLegIndex]
+    if (!leg) throw new GameRuleError('INVALID_STATE', 'Current leg does not exist')
+    const legSnap = computePracticeLegSnapshot({
+      settings: match.settings as PracticeSettings,
+      players: match.players,
+      startingPlayerIndex: leg.startingPlayerIndex,
+      turns: leg.turns,
+      legNumber: leg.legNumber,
+      setNumber: leg.setNumber,
+    })
+    return {
+      status: match.status,
+      settings: match.settings,
+      lockedAt: match.lockedAt,
+      players: [...match.players].sort((a, b) => a.orderIndex - b.orderIndex),
+      currentLegIndex: match.currentLegIndex,
+      legsWonByPlayerId: match.legsWonByPlayerId,
+      legsWonInCurrentSetByPlayerId: match.legsWonInCurrentSetByPlayerId,
+      setsWonByPlayerId: match.setsWonByPlayerId,
+      currentSetNumber: match.currentSetNumber,
+      currentLeg: {
+        legNumber: legSnap.legNumber,
+        setNumber: legSnap.setNumber,
+        startingPlayerIndex: legSnap.startingPlayerIndex,
+        currentPlayerIndex: legSnap.currentPlayerIndex,
+        winnerPlayerId: legSnap.winnerPlayerId,
+      },
+      leg: legSnap,
+    }
+  }
+
   if (match.settings.gameType === 'AROUND') {
     const leg = match.legs[match.currentLegIndex]
     if (!leg) throw new GameRuleError('INVALID_STATE', 'Current leg does not exist')
@@ -1434,7 +1494,17 @@ function applyTurnForCurrentMode(args: {
   remainingBefore: number
   isInBefore: boolean
   input: TurnInput
+  legMeta?: { setNumber: number; legNumber: number }
 }) {
+  if (args.settings.gameType === 'PRACTICE') {
+    if (!args.legMeta) throw new GameRuleError('INVALID_STATE', 'Practice mode needs leg context')
+    return applyPracticeTurn({
+      settings: args.settings as PracticeSettings,
+      stateBefore: { remaining: args.remainingBefore, isIn: args.isInBefore },
+      input: args.input,
+      legMeta: args.legMeta,
+    })
+  }
   if (args.settings.gameType === 'AROUND') {
     return applyAroundTurnForServer({ settings: args.settings, targetBefore: args.remainingBefore, input: args.input })
   }
@@ -1701,6 +1771,7 @@ function submitTurnForCurrentPlayer(args: {
     remainingBefore: currentPlayerState.remaining,
     isInBefore: currentPlayerState.isIn,
     input: args.input,
+    legMeta: { setNumber: snap.leg.setNumber, legNumber: snap.leg.legNumber },
   })
 
   // Lock settings on first accepted turn
@@ -1723,29 +1794,36 @@ function submitTurnForCurrentPlayer(args: {
   const nextSnap = computeMatchSnapshotForRoom(room.match)
   const winnerId = nextSnap.leg.winnerPlayerId
   if (winnerId) {
-    finishedLegNumber = leg.legNumber
-    finishedSetNumber = leg.setNumber
+    const practiceTraining = room.match.settings.gameType === 'PRACTICE'
+    if (!practiceTraining) {
+      finishedLegNumber = leg.legNumber
+      finishedSetNumber = leg.setNumber
+    }
     leg.winnerPlayerId = winnerId
-    room.match.legsWonByPlayerId[winnerId] = (room.match.legsWonByPlayerId[winnerId] ?? 0) + 1
-
-    if (!room.match.settings.setsEnabled) {
-      room.match.legsWonInCurrentSetByPlayerId[winnerId] = (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
-
-      if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
-        room.match.status = 'FINISHED'
-      }
+    if (practiceTraining) {
+      room.match.status = 'FINISHED'
     } else {
-      room.match.legsWonInCurrentSetByPlayerId[winnerId] = (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
+      room.match.legsWonByPlayerId[winnerId] = (room.match.legsWonByPlayerId[winnerId] ?? 0) + 1
 
-      if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
-        room.match.setsWonByPlayerId[winnerId] = (room.match.setsWonByPlayerId[winnerId] ?? 0) + 1
+      if (!room.match.settings.setsEnabled) {
+        room.match.legsWonInCurrentSetByPlayerId[winnerId] = (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
 
-        if (room.match.setsWonByPlayerId[winnerId] >= room.match.settings.setsToWin) {
+        if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
           room.match.status = 'FINISHED'
-        } else {
-          room.match.currentSetNumber += 1
-          for (const p of room.match.players) {
-            room.match.legsWonInCurrentSetByPlayerId[p.id] = 0
+        }
+      } else {
+        room.match.legsWonInCurrentSetByPlayerId[winnerId] = (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
+
+        if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
+          room.match.setsWonByPlayerId[winnerId] = (room.match.setsWonByPlayerId[winnerId] ?? 0) + 1
+
+          if (room.match.setsWonByPlayerId[winnerId] >= room.match.settings.setsToWin) {
+            room.match.status = 'FINISHED'
+          } else {
+            room.match.currentSetNumber += 1
+            for (const p of room.match.players) {
+              room.match.legsWonInCurrentSetByPlayerId[p.id] = 0
+            }
           }
         }
       }
@@ -1766,13 +1844,15 @@ function submitTurnForCurrentPlayer(args: {
   }
 
   if (room.match.status === 'FINISHED' && !room.statsRecorded) {
-    const statsByPlayerId = computePlayerStats(room.match)
-    recordFinishedMatch({
-      roomCode: args.roomCode,
-      match: room.match,
-      statsByPlayerId,
-      playerUserIdByPlayerId: room.playerUserIdByPlayerId,
-    })
+    if (room.match.settings.gameType !== 'PRACTICE') {
+      const statsByPlayerId = computePlayerStats(room.match)
+      recordFinishedMatch({
+        roomCode: args.roomCode,
+        match: room.match,
+        statsByPlayerId,
+        playerUserIdByPlayerId: room.playerUserIdByPlayerId,
+      })
+    }
     room.statsRecorded = true
 
     const tournamentWinnerUserId = winnerId ? room.playerUserIdByPlayerId[winnerId] ?? null : null
@@ -1864,6 +1944,7 @@ function applyAutodartsDart(event: AutodartsDartEvent): {
       remainingBefore: currentPlayerState.remaining,
       isInBefore: currentPlayerState.isIn,
       input,
+      legMeta: { setNumber: snap.leg.setNumber, legNumber: snap.leg.legNumber },
     })
   } catch {
     autodartsPendingTurnByRoomCode.delete(event.roomCode)
@@ -2004,8 +2085,9 @@ function removePlayerByName(roomCode: string, displayName: string): void {
 }
 
 function toTurnInput(args: { settings: GameSettings; total?: number; darts?: Dart[] }): TurnInput {
-  if (args.settings.gameType === 'AROUND' && typeof args.total === 'number' && !args.darts) {
-    throw new GameRuleError('NEED_DARTS', 'Around mode needs per-dart input (or include darts details)')
+  const practiceNeedsDarts = args.settings.gameType === 'PRACTICE' && args.settings.practiceMode !== 'X01'
+  if ((args.settings.gameType === 'AROUND' || practiceNeedsDarts) && typeof args.total === 'number' && !args.darts) {
+    throw new GameRuleError('NEED_DARTS', `${args.settings.gameType} mode needs per-dart input (or include darts details)`)
   }
   if (typeof args.total === 'number') {
     return args.darts ? { mode: 'TOTAL', total: args.total, darts: args.darts } : { mode: 'TOTAL', total: args.total }
@@ -2371,6 +2453,7 @@ io.on('connection', (socket) => {
     try {
       const { name, authToken, settings, title, isPublic, tournamentId, tournamentMatchId } = createSchema.parse(raw)
       validateGameSettings(settings)
+      validateLobbyStartScorePreset(settings)
       const auth = resolveAuthIdentity(authToken)
       const userId = auth?.userId
       const effectiveName = auth?.displayName ?? name
@@ -2378,8 +2461,8 @@ io.on('connection', (socket) => {
       leaveCurrentRoomIfAny()
 
       const room = createRoom({ hostName: effectiveName, settings })
-      room.title = (title ?? '').trim()
-      room.isPublic = Boolean(isPublic)
+      room.title = settings.gameType === 'PRACTICE' ? '' : (title ?? '').trim()
+      room.isPublic = settings.gameType === 'PRACTICE' ? false : Boolean(isPublic)
       addClient(room, { socketId: socket.id, name: effectiveName, userId, isHost: true, role: 'PLAYER' })
       setSocketUser(userId)
 
@@ -2387,6 +2470,12 @@ io.on('connection', (socket) => {
       const hostPlayer = ensurePlayer(room.code, effectiveName, socket.id, userId)
       let responseRole: 'PLAYER' | 'SPECTATOR' = 'PLAYER'
       let responsePlayerId: string | undefined = hostPlayer?.id
+
+      if (settings.gameType === 'PRACTICE') {
+        room.match.status = 'LIVE'
+        room.match.currentLegIndex = 0
+        room.match.legs[0].startingPlayerIndex = 0
+      }
 
       socket.join(roomChannel(room.code))
       ;(socket.data as any).roomCode = room.code
@@ -2551,6 +2640,7 @@ io.on('connection', (socket) => {
 
       const room = getRoom(code)
       const tournamentMatch = getTournamentMatchForRoomCode(code)
+      const practiceSolo = room.match.settings.gameType === 'PRACTICE'
 
       const normalized = effectiveName.trim().toLowerCase()
       const isExistingPlayerName = room.match.players.some((p) => p.name.toLowerCase() === normalized)
@@ -2558,6 +2648,10 @@ io.on('connection', (socket) => {
 
       let role: 'PLAYER' | 'SPECTATOR' =
         isExistingPlayerName ? 'PLAYER' : gameStarted ? 'SPECTATOR' : asSpectator ? 'SPECTATOR' : 'PLAYER'
+
+      if (practiceSolo && gameStarted) {
+        role = hostSecret === room.hostSecret ? 'PLAYER' : 'SPECTATOR'
+      }
 
       if (tournamentMatch) {
         if (tournamentMatch.participationMode === 'ONLINE') {
@@ -2606,7 +2700,10 @@ io.on('connection', (socket) => {
           const p = ensurePlayer(code, effectiveName, socket.id, userId)
           playerId = p?.id
         } else {
-          const p = getPlayerByName(code, effectiveName)
+          const p =
+            practiceSolo && hostSecret === room.hostSecret
+              ? room.match.players[0] ?? null
+              : getPlayerByName(code, effectiveName)
           if (p) {
             room.controllerSocketIdByPlayerId[p.id] = socket.id
             if (userId) room.playerUserIdByPlayerId[p.id] = userId
@@ -2764,6 +2861,7 @@ io.on('connection', (socket) => {
     try {
       const { hostSecret, settings } = updateSettingsSchema.parse(raw)
       validateGameSettings(settings)
+      validateLobbyStartScorePreset(settings)
       const code = currentRoomCode()
 
       const room = getRoom(code)

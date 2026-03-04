@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
-import type { AroundSettings, GameSettings, X01Settings } from '@/lib/types'
+import type { AroundSettings, GameSettings, PracticeSettings, X01Settings } from '@/lib/types'
+
+const allowedX01StartScores = [121, 170, 301, 501] as const
 
 const defaultSettings: X01Settings = {
   gameType: 'X01',
@@ -23,6 +25,15 @@ const defaultAroundSettings: AroundSettings = {
   setsEnabled: false,
   setsToWin: 0,
   advanceByMultiplier: false,
+}
+
+const defaultPracticeSettings: PracticeSettings = {
+  gameType: 'PRACTICE',
+  practiceMode: 'RANDOM_CHECKOUT',
+  startScore: 501,
+  legsToWin: 1,
+  setsEnabled: false,
+  setsToWin: 0,
 }
 
 export default function CreatePage() {
@@ -58,15 +69,16 @@ export default function CreatePage() {
         name: effectiveName,
         authToken,
         settings: normalizedSettings,
-        title,
-        isPublic,
+        title: normalizedSettings.gameType === 'PRACTICE' ? '' : title,
+        isPublic: normalizedSettings.gameType === 'PRACTICE' ? false : isPublic,
       })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to create room')
 
       localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_hostSecret', res.hostSecret)
       localStorage.setItem('dc_role', res.role ?? 'PLAYER')
-      router.push(`/room/${res.code}/lobby`)
+      if (normalizedSettings.gameType === 'PRACTICE') router.push(`/room/${res.code}/game`)
+      else router.push(`/room/${res.code}/lobby`)
     } catch (e: any) {
       setErr(e?.message ?? String(e))
     } finally {
@@ -98,62 +110,66 @@ export default function CreatePage() {
             </div>
           )}
 
-          <div className="grid2">
-            <div className="col">
-              <label className="help">Lobby name</label>
-              <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Friday 501" />
+          {settings.gameType !== 'PRACTICE' ? (
+            <div className="grid2">
+              <div className="col">
+                <label className="help">Lobby name</label>
+                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Friday 501" />
+              </div>
+              <div className="col">
+                <label className="help">Visibility</label>
+                <label className="pill" style={{ cursor: 'pointer' }}>
+                  <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+                  Public lobby
+                </label>
+              </div>
             </div>
-            <div className="col">
-              <label className="help">Visibility</label>
-              <label className="pill" style={{ cursor: 'pointer' }}>
-                <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
-                Public lobby
-              </label>
-            </div>
-          </div>
+          ) : null}
 
           <div className="grid2">
             <div className="col" style={{ gridColumn: '1 / -1' }}>
               <label className="help">Game mode</label>
               <div className="row homePresetRow">
                 <button
-                  className="btn"
+                  className={settings.gameType === 'X01' ? 'btn btnPrimary' : 'btn'}
                   type="button"
                   onClick={() => setSettings((s) => (s.gameType === 'X01' ? s : defaultSettings))}
                 >
                   X01
                 </button>
                 <button
-                  className="btn"
+                  className={settings.gameType === 'AROUND' ? 'btn btnPrimary' : 'btn'}
                   type="button"
                   onClick={() => setSettings((s) => (s.gameType === 'AROUND' ? s : defaultAroundSettings))}
                 >
                   Around the Board
+                </button>
+                <button
+                  className={settings.gameType === 'PRACTICE' ? 'btn btnPrimary' : 'btn'}
+                  type="button"
+                  onClick={() => setSettings((s) => (s.gameType === 'PRACTICE' ? s : defaultPracticeSettings))}
+                >
+                  Practice
                 </button>
               </div>
             </div>
 
             {settings.gameType === 'X01' ? (
               <>
-                <div className="col" style={{ gridColumn: '1 / -1' }}>
-                  <label className="help">Quick presets</label>
-                  <div className="row homePresetRow">
-                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...(s as X01Settings), startScore: 301 }))}>301</button>
-                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...(s as X01Settings), startScore: 501 }))}>501</button>
-                    <button className="btn" type="button" onClick={() => setSettings((s) => ({ ...(s as X01Settings), startScore: 701 }))}>701</button>
-                  </div>
-                </div>
                 <div className="col">
                   <label className="help">Start score</label>
-                  <input
-                    className="input"
-                    type="number"
-                    min={2}
-                    value={settings.startScore}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...(s as X01Settings), startScore: clampInt(Number(e.target.value), 2, 10001, 501) }))
-                    }
-                  />
+                  <div className="row homePresetRow" style={{ flexWrap: 'wrap' }}>
+                    {allowedX01StartScores.map((score) => (
+                      <button
+                        key={score}
+                        className={settings.startScore === score ? 'btn btnPrimary' : 'btn'}
+                        type="button"
+                        onClick={() => setSettings((s) => ({ ...(s as X01Settings), startScore: score }))}
+                      >
+                        {score}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="col">
                   <label className="help">Legs to win</label>
@@ -166,7 +182,7 @@ export default function CreatePage() {
                   />
                 </div>
               </>
-            ) : (
+            ) : settings.gameType === 'AROUND' ? (
               <div className="grid2" style={{ gridColumn: '1 / -1' }}>
                 <div className="col">
                   <label className="help">Legs to win</label>
@@ -191,6 +207,64 @@ export default function CreatePage() {
                     Double/triple advances 2/3 steps
                   </label>
                 </div>
+              </div>
+            ) : (
+              <div className="grid2" style={{ gridColumn: '1 / -1' }}>
+                <div className="col" style={{ gridColumn: '1 / -1' }}>
+                  <label className="help">Practice mode</label>
+                  <div className="row homePresetRow" style={{ flexWrap: 'wrap' }}>
+                    <button
+                      className={settings.practiceMode === 'RANDOM_CHECKOUT' ? 'btn btnPrimary' : 'btn'}
+                      type="button"
+                      onClick={() => setSettings((s) => ({ ...(s as PracticeSettings), practiceMode: 'RANDOM_CHECKOUT' }))}
+                    >
+                      Random checkout
+                    </button>
+                    <button
+                      className={settings.practiceMode === 'DOUBLES' ? 'btn btnPrimary' : 'btn'}
+                      type="button"
+                      onClick={() => setSettings((s) => ({ ...(s as PracticeSettings), practiceMode: 'DOUBLES' }))}
+                    >
+                      Doubles
+                    </button>
+                    <button
+                      className={settings.practiceMode === 'TRIPLES' ? 'btn btnPrimary' : 'btn'}
+                      type="button"
+                      onClick={() => setSettings((s) => ({ ...(s as PracticeSettings), practiceMode: 'TRIPLES' }))}
+                    >
+                      Triples
+                    </button>
+                    <button
+                      className={settings.practiceMode === 'X01' ? 'btn btnPrimary' : 'btn'}
+                      type="button"
+                      onClick={() => setSettings((s) => ({ ...(s as PracticeSettings), practiceMode: 'X01' }))}
+                    >
+                      X01 practice
+                    </button>
+                  </div>
+                </div>
+                {settings.practiceMode === 'X01' ? (
+                  <div className="col">
+                    <label className="help">Start score</label>
+                    <div className="row homePresetRow" style={{ flexWrap: 'wrap' }}>
+                      {allowedX01StartScores.map((score) => (
+                        <button
+                          key={score}
+                          className={settings.startScore === score ? 'btn btnPrimary' : 'btn'}
+                          type="button"
+                          onClick={() => setSettings((s) => ({ ...(s as PracticeSettings), startScore: score }))}
+                        >
+                          {score}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="col">
+                    <label className="help">Format</label>
+                    <span className="pill">Single training run (no legs/sets)</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -220,7 +294,18 @@ function normalizeSettingsForCreate(settings: GameSettings): GameSettings {
     }
   }
 
-  const startScore = clampInt(settings.startScore, 2, 10001, 501)
+  if (settings.gameType === 'PRACTICE') {
+    return {
+      gameType: 'PRACTICE',
+      practiceMode: settings.practiceMode,
+      startScore: normalizeAllowedStartScore(settings.startScore, 501),
+      legsToWin: 1,
+      setsEnabled: false,
+      setsToWin: 0,
+    }
+  }
+
+  const startScore = normalizeAllowedStartScore(settings.startScore, 501)
   const legsToWin = clampInt(settings.legsToWin, 1, 99, 3)
   const setsEnabled = Boolean(settings.setsEnabled)
   const setsToWin = setsEnabled ? clampInt(settings.setsToWin, 1, 99, 1) : 0
@@ -248,4 +333,9 @@ function clampInt(value: number, min: number, max: number, fallback: number): nu
   if (i < min) return min
   if (i > max) return max
   return i
+}
+
+function normalizeAllowedStartScore(value: number, fallback: number): number {
+  const n = clampInt(value, 2, 10001, fallback)
+  return allowedX01StartScores.includes(n as (typeof allowedX01StartScores)[number]) ? n : fallback
 }

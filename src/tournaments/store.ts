@@ -77,6 +77,7 @@ export function createTournament(args: {
   maxPlayers: number
   participationMode: TournamentParticipationMode
 }): Tournament {
+  if (args.settings.gameType === 'PRACTICE') throw new Error('TOURNAMENT_PRACTICE_NOT_ALLOWED')
   const now = Date.now()
   const t: Tournament = {
     id: randomId(10),

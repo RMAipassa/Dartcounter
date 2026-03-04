@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
-import type { AroundSettings, GameSettings, RoomSnapshot, X01Settings } from '@/lib/types'
+import type { AroundSettings, GameSettings, PracticeSettings, RoomSnapshot, X01Settings } from '@/lib/types'
+
+const allowedX01StartScores = [121, 170, 301, 501] as const
 
 type LobbyFriend = {
   user: { userId: string; displayName: string; email: string }
@@ -467,9 +469,9 @@ function LobbySettings({
         <label className="help">Game mode</label>
         <div className="row" style={{ flexWrap: 'wrap' }}>
           <button
-            className="btn"
+            className={draft.gameType === 'X01' ? 'btn btnPrimary' : 'btn'}
             type="button"
-            disabled={locked || draft.gameType === 'X01'}
+            disabled={locked}
             onClick={() =>
               setDraft({
                 gameType: 'X01',
@@ -486,9 +488,9 @@ function LobbySettings({
             X01
           </button>
           <button
-            className="btn"
+            className={draft.gameType === 'AROUND' ? 'btn btnPrimary' : 'btn'}
             type="button"
-            disabled={locked || draft.gameType === 'AROUND'}
+            disabled={locked}
             onClick={() =>
               setDraft({
                 gameType: 'AROUND',
@@ -501,23 +503,44 @@ function LobbySettings({
           >
             Around the Board
           </button>
+          <button
+            className={draft.gameType === 'PRACTICE' ? 'btn btnPrimary' : 'btn'}
+            type="button"
+            disabled={locked}
+            onClick={() =>
+              setDraft({
+                gameType: 'PRACTICE',
+                practiceMode: 'RANDOM_CHECKOUT',
+                startScore: 501,
+                legsToWin: 1,
+                setsEnabled: false,
+                setsToWin: 0,
+              })
+            }
+          >
+            Practice
+          </button>
         </div>
       </div>
 
-      <div className="grid2">
+      {draft.gameType !== 'PRACTICE' ? (
+        <div className="grid2">
         {draft.gameType === 'X01' ? (
           <div className="col">
             <label className="help">Start score</label>
-            <input
-              className="input"
-              type="number"
-              value={draft.startScore}
-              min={2}
-              onChange={(e) =>
-                setDraft((s) => ({ ...(s as X01Settings), startScore: clampInt(Number(e.target.value), 2, 10001, 501) }))
-              }
-              disabled={locked}
-            />
+            <div className="row homePresetRow" style={{ flexWrap: 'wrap' }}>
+              {allowedX01StartScores.map((score) => (
+                <button
+                  key={score}
+                  className={draft.startScore === score ? 'btn btnPrimary' : 'btn'}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => setDraft((s) => ({ ...(s as X01Settings), startScore: score }))}
+                >
+                  {score}
+                </button>
+              ))}
+            </div>
           </div>
         ) : null}
         <div className="col">
@@ -531,39 +554,42 @@ function LobbySettings({
             disabled={locked}
           />
         </div>
-      </div>
+        </div>
+      ) : null}
 
-      <div className="grid2">
-        <div className="col">
-          <label className="help">Sets</label>
-          <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
+      {draft.gameType !== 'PRACTICE' ? (
+        <div className="grid2">
+          <div className="col">
+            <label className="help">Sets</label>
+            <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={draft.setsEnabled}
+                disabled={locked}
+                onChange={(e) =>
+                  setDraft((s) => ({
+                    ...s,
+                    setsEnabled: e.target.checked,
+                    setsToWin: e.target.checked ? Math.max(1, s.setsToWin || 1) : 0,
+                  }))
+                }
+              />
+              Enable sets
+            </label>
+          </div>
+          <div className="col">
+            <label className="help">Sets to win</label>
             <input
-              type="checkbox"
-              checked={draft.setsEnabled}
-              disabled={locked}
-              onChange={(e) =>
-                setDraft((s) => ({
-                  ...s,
-                  setsEnabled: e.target.checked,
-                  setsToWin: e.target.checked ? Math.max(1, s.setsToWin || 1) : 0,
-                }))
-              }
+              className="input"
+              type="number"
+              value={draft.setsToWin}
+              min={1}
+              disabled={locked || !draft.setsEnabled}
+              onChange={(e) => setDraft((s) => ({ ...s, setsToWin: clampInt(Number(e.target.value), 1, 99, 1) }))}
             />
-            Enable sets
-          </label>
+          </div>
         </div>
-        <div className="col">
-          <label className="help">Sets to win</label>
-          <input
-            className="input"
-            type="number"
-            value={draft.setsToWin}
-            min={1}
-            disabled={locked || !draft.setsEnabled}
-            onChange={(e) => setDraft((s) => ({ ...s, setsToWin: clampInt(Number(e.target.value), 1, 99, 1) }))}
-          />
-        </div>
-      </div>
+      ) : null}
       {draft.gameType === 'X01' ? (
         <>
           <div className="grid2">
@@ -624,7 +650,7 @@ function LobbySettings({
             </div> : null}
           </div>
         </>
-      ) : (
+      ) : draft.gameType === 'AROUND' ? (
         <div className="col" style={{ gap: 10 }}>
           <div className="help">Around the Board uses per-dart progression from 1 through bull.</div>
           <label className="pill" style={{ cursor: locked ? 'not-allowed' : 'pointer' }}>
@@ -639,9 +665,84 @@ function LobbySettings({
             Double/triple advances 2/3 steps
           </label>
         </div>
+      ) : (
+        <div className="col" style={{ gap: 10 }}>
+          <div className="help">Practice modes are single training runs (no legs or sets).</div>
+          <div className="col">
+            <label className="help">Practice mode</label>
+            <div className="row homePresetRow" style={{ flexWrap: 'wrap' }}>
+              <button
+                className={(draft as PracticeSettings).practiceMode === 'RANDOM_CHECKOUT' ? 'btn btnPrimary' : 'btn'}
+                type="button"
+                disabled={locked}
+                onClick={() => setDraft((s) => ({ ...(s as PracticeSettings), practiceMode: 'RANDOM_CHECKOUT' }))}
+              >
+                Random checkout
+              </button>
+              <button
+                className={(draft as PracticeSettings).practiceMode === 'DOUBLES' ? 'btn btnPrimary' : 'btn'}
+                type="button"
+                disabled={locked}
+                onClick={() => setDraft((s) => ({ ...(s as PracticeSettings), practiceMode: 'DOUBLES' }))}
+              >
+                Doubles
+              </button>
+              <button
+                className={(draft as PracticeSettings).practiceMode === 'TRIPLES' ? 'btn btnPrimary' : 'btn'}
+                type="button"
+                disabled={locked}
+                onClick={() => setDraft((s) => ({ ...(s as PracticeSettings), practiceMode: 'TRIPLES' }))}
+              >
+                Triples
+              </button>
+              <button
+                className={(draft as PracticeSettings).practiceMode === 'X01' ? 'btn btnPrimary' : 'btn'}
+                type="button"
+                disabled={locked}
+                onClick={() => setDraft((s) => ({ ...(s as PracticeSettings), practiceMode: 'X01' }))}
+              >
+                X01 practice
+              </button>
+            </div>
+          </div>
+          {(draft as PracticeSettings).practiceMode === 'X01' ? (
+            <div className="col">
+              <label className="help">Start score</label>
+              <div className="row homePresetRow" style={{ flexWrap: 'wrap' }}>
+                {allowedX01StartScores.map((score) => (
+                  <button
+                    key={score}
+                    className={((draft as PracticeSettings).startScore ?? 501) === score ? 'btn btnPrimary' : 'btn'}
+                    type="button"
+                    disabled={locked}
+                    onClick={() => setDraft((s) => ({ ...(s as PracticeSettings), startScore: score }))}
+                  >
+                    {score}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
       )}
 
-      <button className="btn" disabled={locked || invalid} onClick={() => onChange(draft)}>
+      <button
+        className="btn"
+        disabled={locked || invalid}
+        onClick={() =>
+          onChange(
+            draft.gameType === 'PRACTICE'
+              ? {
+                  ...draft,
+                  startScore: normalizeAllowedStartScore(draft.startScore, 501),
+                  legsToWin: 1,
+                  setsEnabled: false,
+                  setsToWin: 0,
+                }
+              : draft,
+          )
+        }
+      >
         Save settings
       </button>
     </div>
@@ -654,6 +755,11 @@ function clampInt(value: number, min: number, max: number, fallback: number): nu
   if (n < min) return min
   if (n > max) return max
   return n
+}
+
+function normalizeAllowedStartScore(value: number, fallback: number): number {
+  const n = clampInt(value, 2, 10001, fallback)
+  return allowedX01StartScores.includes(n as (typeof allowedX01StartScores)[number]) ? n : fallback
 }
 
 function LobbyNameEditor({

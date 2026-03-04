@@ -265,6 +265,8 @@ export default function GamePage() {
   const statsByPlayerId = match?.statsByPlayerId ?? {}
   const isX01 = settings?.gameType === 'X01'
   const isAround = settings?.gameType === 'AROUND'
+  const isPractice = settings?.gameType === 'PRACTICE'
+  const practicePerDartOnly = Boolean(isPractice && settings.practiceMode !== 'X01')
   const autodarts = snap?.room?.autodarts
   const autodartsActiveUserId = snap?.room?.autodartsActiveUserId ?? null
   const autodartsActivePlayerName = autodartsActiveUserId
@@ -287,7 +289,7 @@ export default function GamePage() {
     autodartsBufferPlayerId === currentPlayer?.id
   const autodartsTurnReady = autodartsControllingTurn && autodartsBufferReady
   const canSubmitNow = canSubmitByControl && (!autodartsControllingTurn || autodartsTurnReady)
-  const autodartsPerDartOnly = autodarts?.status === 'CONNECTED' || isAround
+  const autodartsPerDartOnly = autodarts?.status === 'CONNECTED' || isAround || practicePerDartOnly
   const autodartsReviewEdited =
     Boolean(autodartsLoadedForReview) &&
     (entryMode !== 'PER_DART' || !sameDarts(darts, autodartsLoadedForReview?.darts ?? []))
@@ -306,7 +308,9 @@ export default function GamePage() {
   const settingsSummary = settings
     ? settings.gameType === 'X01'
       ? `${settings.startScore} · ${settings.doubleIn ? 'DI' : 'SI'} · ${settings.doubleOut ? 'DO' : settings.masterOut ? 'MO' : 'SO'}`
-      : 'Around the Board'
+      : settings.gameType === 'AROUND'
+        ? 'Around the Board'
+        : `Practice · ${settings.practiceMode === 'X01' ? `X01 ${settings.startScore}` : settings.practiceMode.replaceAll('_', ' ')}`
     : null
 
   const isMobile = useMediaQuery('(max-width: 520px)')
@@ -378,8 +382,8 @@ export default function GamePage() {
       const payload: any = {}
 
       const mode = override?.mode ?? entryMode
-      if (settings?.gameType === 'AROUND' && mode === 'TOTAL') {
-        throw new Error('Around mode uses per-dart input only')
+      if ((settings?.gameType === 'AROUND' || (settings?.gameType === 'PRACTICE' && settings.practiceMode !== 'X01')) && mode === 'TOTAL') {
+        throw new Error(`${settings.gameType} mode uses per-dart input only`)
       }
       if (mode === 'PER_DART') {
         payload.darts = override?.darts ?? darts
@@ -566,8 +570,8 @@ export default function GamePage() {
 
       const score = parseVoiceScore180(transcript)
       if (score != null) {
-        if (isAround) {
-          setToast('Around mode expects dart calls, e.g. "single 7"')
+        if (isAround || isPractice) {
+          setToast(`${settings?.gameType ?? 'This'} mode expects dart calls, e.g. "single 7"`)
           setTimeout(() => setToast(null), 1800)
           return
         }
@@ -770,7 +774,9 @@ export default function GamePage() {
                 <div style={{ fontSize: 16, marginBottom: 6 }}>Scoreboard</div>
                 <div className="help">Each player has their own table.</div>
               </div>
-              {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
+              {match ? (
+                <span className="pill">{match.settings.gameType === 'PRACTICE' ? 'Practice session' : `Set ${match.currentSetNumber} · Leg ${match.currentLeg.legNumber}`}</span>
+              ) : null}
             </div>
 
             <div className={desktopScoreGridClass} style={{ marginTop: 10 }}>
@@ -844,7 +850,7 @@ export default function GamePage() {
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 16, marginBottom: 6 }}>Player stats</div>
-            <div className="help">{isAround ? 'Around mode: darts-thrown focused stats.' : 'Computed from turns (total mode assumes 3 darts per visit).'}</div>
+            <div className="help">{isX01 ? 'Computed from turns (total mode assumes 3 darts per visit).' : 'Practice/Around modes: darts-thrown focused stats.'}</div>
           </div>
         </div>
 
@@ -860,16 +866,16 @@ export default function GamePage() {
               >
                 <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="pill" style={{ color: 'var(--text)' }}>{p.name}</span>
-                  {isAround ? <span className="pill">Darts: {s.dartsThrown ?? 0}</span> : <span className="pill">Avg: {s.threeDartAvg ?? '-'}</span>}
+                  {!isX01 ? <span className="pill">Darts: {s.dartsThrown ?? 0}</span> : <span className="pill">Avg: {s.threeDartAvg ?? '-'}</span>}
                 </div>
                 <div className="row" style={{ flexWrap: 'wrap' }}>
-                  {match?.settings?.setsEnabled ? <span className="pill">Sets: {s.setsWon}</span> : null}
-                  <span className="pill">Legs: {s.legsWon}</span>
+                  {isPractice ? null : match?.settings?.setsEnabled ? <span className="pill">Sets: {s.setsWon}</span> : null}
+                  {isPractice ? null : <span className="pill">Legs: {s.legsWon}</span>}
                   <span className="pill">Darts thrown: {s.dartsThrown ?? 0}</span>
-                  {!isAround ? <span className="pill">First 9: {s.first9Avg ?? '-'}</span> : null}
-                  {!isAround ? <span className="pill">CO%: {s.checkoutRate == null ? '-' : `${s.checkoutRate}%`}</span> : null}
-                  {!isAround ? <span className="pill">Hi finish: {s.highestFinish ?? '-'}</span> : null}
-                  {!isAround ? <span className="pill">Hi score: {s.highestScore}</span> : null}
+                  {isX01 ? <span className="pill">First 9: {s.first9Avg ?? '-'}</span> : null}
+                  {isX01 ? <span className="pill">CO%: {s.checkoutRate == null ? '-' : `${s.checkoutRate}%`}</span> : null}
+                  {isX01 ? <span className="pill">Hi finish: {s.highestFinish ?? '-'}</span> : null}
+                  {isX01 ? <span className="pill">Hi score: {s.highestScore}</span> : null}
                   <span className="pill">Best leg: {s.bestLegDarts == null ? '-' : `${s.bestLegDarts} darts`}</span>
                   <span className="pill">Worst leg: {s.worstLegDarts == null ? '-' : `${s.worstLegDarts} darts`}</span>
                 </div>
@@ -960,7 +966,8 @@ function MobileGame({
   const currentView = playerViews.find((v) => v.isCurrent) ?? playerViews[0]
   const otherViews = playerViews.filter((v) => !v.isCurrent)
   const isTwoPlayer = playerViews.length === 2
-  const isAroundMode = match?.settings?.gameType === 'AROUND'
+  const isAroundMode = match?.settings?.gameType !== 'X01'
+  const isPracticeMode = match?.settings?.gameType === 'PRACTICE'
 
   return (
     <div className="mobileGame">
@@ -985,7 +992,7 @@ function MobileGame({
           </svg>
         </button>
         <div className="mobileHeaderTitle">
-          {match?.settings?.setsEnabled ? `FIRST TO ${match.settings.setsToWin} SETS` : `FIRST TO ${match?.settings?.legsToWin ?? 0} LEGS`}
+          {isPracticeMode ? 'PRACTICE SESSION' : match?.settings?.setsEnabled ? `FIRST TO ${match.settings.setsToWin} SETS` : `FIRST TO ${match?.settings?.legsToWin ?? 0} LEGS`}
         </div>
         <button
           className="mobileIconBtn"
@@ -1014,7 +1021,7 @@ function MobileGame({
             >
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                 <span className="pill" style={{ color: 'var(--text)' }}>{v.player.name}</span>
-                <span className="pill">{v.stats?.legsWon ?? 0} legs</span>
+                {isPracticeMode ? <span className="pill">Practice</span> : <span className="pill">{v.stats?.legsWon ?? 0} legs</span>}
               </div>
               <div className="mobileScorePaneBig">{v.remaining ?? '-'}</div>
               <div className="col" style={{ gap: 6 }}>
@@ -1029,16 +1036,16 @@ function MobileGame({
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <div className="row">
               <span className="pill" style={{ color: 'var(--text)' }}>{currentView?.player.name ?? 'Waiting...'}</span>
-              {match ? <span className="pill">Set {match.currentSetNumber} · Leg {match.currentLeg.legNumber}</span> : null}
+              {match ? <span className="pill">{isPracticeMode ? 'Practice session' : `Set ${match.currentSetNumber} · Leg ${match.currentLeg.legNumber}`}</span> : null}
             </div>
             {match ? (
-              <span className="pill">{match.settings.gameType === 'X01' ? `${match.settings.startScore} · ${match.settings.doubleIn ? 'DI' : 'SI'} · ${match.settings.doubleOut ? 'DO' : match.settings.masterOut ? 'MO' : 'SO'}` : 'Around the Board'}</span>
+              <span className="pill">{match.settings.gameType === 'X01' ? `${match.settings.startScore} · ${match.settings.doubleIn ? 'DI' : 'SI'} · ${match.settings.doubleOut ? 'DO' : match.settings.masterOut ? 'MO' : 'SO'}` : match.settings.gameType === 'AROUND' ? 'Around the Board' : `Practice · ${match.settings.practiceMode === 'X01' ? `X01 ${match.settings.startScore}` : match.settings.practiceMode.replaceAll('_', ' ')}`}</span>
             ) : null}
           </div>
 
           <div className="row" style={{ flexWrap: 'wrap', marginTop: 10 }}>
-            {match?.settings?.setsEnabled ? <span className="pill">Sets won: {currentView?.stats?.setsWon ?? 0}</span> : null}
-            <span className="pill">Legs won: {currentView?.stats?.legsWon ?? 0}</span>
+            {isPracticeMode ? null : match?.settings?.setsEnabled ? <span className="pill">Sets won: {currentView?.stats?.setsWon ?? 0}</span> : null}
+            {isPracticeMode ? null : <span className="pill">Legs won: {currentView?.stats?.legsWon ?? 0}</span>}
             {autodartsControllingTurn ? <span className="pill" style={{ color: 'var(--accent)' }}>Autodarts scoring</span> : null}
           </div>
 
@@ -2223,14 +2230,14 @@ function PlayerPanel({
           ) : null}
           {autodartsControllingTurn ? <span className="pill" style={{ color: 'var(--accent)' }}>Autodarts scoring</span> : null}
         </div>
-        {match?.settings?.setsEnabled ? <span className="pill">Sets: {stats?.setsWon ?? 0}</span> : null}
+        {match?.settings?.gameType === 'PRACTICE' ? null : match?.settings?.setsEnabled ? <span className="pill">Sets: {stats?.setsWon ?? 0}</span> : null}
       </div>
 
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
         <div className="playerBigNum playerBigNumDesktop">{ps?.remaining ?? '-'}</div>
         <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
-          <span className="pill">Legs: {stats?.legsWon ?? 0}</span>
-          {settings?.gameType === 'AROUND' ? <span className="pill">Darts thrown: {stats?.dartsThrown ?? thrown}</span> : <span className="pill">3-dart avg: {stats?.threeDartAvg ?? '-'}</span>}
+          {match?.settings?.gameType === 'PRACTICE' ? null : <span className="pill">Legs: {stats?.legsWon ?? 0}</span>}
+          {settings?.gameType !== 'X01' ? <span className="pill">Darts thrown: {stats?.dartsThrown ?? thrown}</span> : <span className="pill">3-dart avg: {stats?.threeDartAvg ?? '-'}</span>}
           <span className="pill">Last score: {last ?? '-'}</span>
           <span className="pill">Darts thrown: {thrown}</span>
         </div>
