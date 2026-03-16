@@ -63,6 +63,22 @@ function Start-Server {
   return @{ Process = $p; OutLog = $outLog; ErrLog = $errLog }
 }
 
+function Show-SmtpStatus($server) {
+  Start-Sleep -Milliseconds 350
+  $line = $null
+  if (Test-Path $server.OutLog) {
+    $line = Get-Content $server.OutLog -Tail 60 | Where-Object { $_ -like '[auth] SMTP *' } | Select-Object -Last 1
+  }
+  if (-not $line -and (Test-Path $server.ErrLog)) {
+    $line = Get-Content $server.ErrLog -Tail 60 | Where-Object { $_ -like '[auth] SMTP *' } | Select-Object -Last 1
+  }
+  if ($line) {
+    Write-Info $line
+  } else {
+    Write-Info 'SMTP status not found yet (check logs/server.out.log and logs/server.err.log).'
+  }
+}
+
 function Stop-Server($server) {
   if ($null -eq $server) { return }
   $proc = $server.Process
@@ -109,6 +125,7 @@ function Git-PullFastForward {
 Ensure-Dependencies
 Build-App
 $server = Start-Server
+Show-SmtpStatus $server
 
 Write-Info "Auto-update enabled. Polling every $PollSeconds seconds."
 
@@ -124,6 +141,7 @@ while ($true) {
     Ensure-Dependencies
     Build-App
     $server = Start-Server
+    Show-SmtpStatus $server
     continue
   }
 
@@ -149,5 +167,6 @@ while ($true) {
     Ensure-Dependencies
     Build-App
     $server = Start-Server
+    Show-SmtpStatus $server
   }
 }
