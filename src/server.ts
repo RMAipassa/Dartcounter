@@ -201,6 +201,7 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email().max(160),
   password: z.string().min(1).max(200),
+  rememberMe: z.boolean().optional(),
 })
 
 const logoutSchema = z.object({
@@ -316,7 +317,7 @@ app.post('/api/auth/login', (req, res) => {
       res.status(401).json({ ok: false, message: 'Invalid email or password' })
       return
     }
-    const session = createSession(user.id)
+    const session = createSession(user.id, { rememberMe: Boolean(body.rememberMe) })
     res.status(200).json({ ok: true, token: session.token, user })
   } catch {
     res.status(400).json({ ok: false, message: 'Invalid login request' })

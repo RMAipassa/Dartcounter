@@ -43,6 +43,7 @@ type AuthStoreData = {
 
 const dataFile = path.join(process.cwd(), 'data', 'auth-store.json')
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14
+const SESSION_TTL_REMEMBER_ME_MS = 1000 * 60 * 60 * 24 * 90
 
 let db: AuthStoreData = loadDb()
 
@@ -105,13 +106,14 @@ export function authenticateUser(args: { email: string; password: string }): Pub
   return toPublicUser(user)
 }
 
-export function createSession(userId: string): SessionRecord {
+export function createSession(userId: string, opts?: { rememberMe?: boolean }): SessionRecord {
   pruneSessions()
+  const ttlMs = opts?.rememberMe ? SESSION_TTL_REMEMBER_ME_MS : SESSION_TTL_MS
   const session: SessionRecord = {
     token: randomId(24),
     userId,
     createdAt: Date.now(),
-    expiresAt: Date.now() + SESSION_TTL_MS,
+    expiresAt: Date.now() + ttlMs,
   }
   db.sessions.push(session)
   persistDb()

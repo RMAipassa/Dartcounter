@@ -192,6 +192,7 @@ export default function AccountPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [me, setMe] = useState<MeUser | null>(null)
@@ -278,6 +279,7 @@ export default function AccountPage() {
       const endpoint = mode === 'LOGIN' ? '/api/auth/login' : '/api/auth/register'
       const payload: Record<string, unknown> = { email, password }
       if (mode === 'REGISTER') payload.displayName = displayName.trim()
+      if (mode === 'LOGIN') payload.rememberMe = rememberMe
 
       const res = await fetch(`${serverUrl}${endpoint}`, {
         method: 'POST',
@@ -673,6 +675,13 @@ export default function AccountPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"
             />
+
+            {mode === 'LOGIN' ? (
+              <label className="pill" style={{ cursor: 'pointer' }}>
+                <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+                Remember me
+              </label>
+            ) : null}
 
             <button className="btn btnPrimary" disabled={busy || !email.trim() || !password} onClick={submit}>
               {busy ? 'Working...' : mode === 'LOGIN' ? 'Sign in' : 'Create account'}
