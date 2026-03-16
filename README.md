@@ -154,14 +154,50 @@ Basic account auth is now available with persistent local storage in `data/auth-
 
 - API endpoints:
   - `POST /api/auth/register` (`email`, `password`, optional `displayName`)
-  - `POST /api/auth/login` (`email`, `password`)
+  - `POST /api/auth/login` (`email`, `password`, optional `rememberMe`)
   - `POST /api/auth/logout` (`token`)
+  - `POST /api/auth/forgot-password` (`email`)
+  - `POST /api/auth/reset-password` (`token`, `newPassword`)
   - `GET /api/auth/me` (`Authorization: Bearer <token>`)
   - `POST /api/auth/autodarts` (`Authorization: Bearer <token>`, body: `{ deviceId: string | null }`)
   - `POST /api/auth/autodarts-credentials` (`Authorization: Bearer <token>`, body supports `{ token }` or `{ email, password }`, optional `{ apiBase, wsBase }`, or `{ clear: true }`)
 - Web account page: `/account`
 - Auth token is stored client-side (`dc_authToken`) and attached to room create/join.
 - This is the identity foundation for upcoming per-user autodarts bindings.
+
+### Password reset email (Gmail SMTP)
+
+Password reset is token-based with one-time links (30 minute expiry). Configure SMTP so reset emails can be delivered.
+
+Required env vars:
+
+- `SMTP_HOST` (Gmail: `smtp.gmail.com`)
+- `SMTP_PORT` (`587` for STARTTLS, or `465` for SMTPS)
+- `SMTP_SECURE` (`false` for `587`, `true` for `465`)
+- `SMTP_USER` (sender mailbox, e.g. `dartsruby@gmail.com`)
+- `SMTP_PASS` (Gmail App Password)
+- `SMTP_FROM` (e.g. `Dartcounter <dartsruby@gmail.com>`)
+- `APP_BASE_URL` (public app URL used to build reset links)
+
+Gmail setup steps:
+
+1. Enable 2-Step Verification on the Google account.
+2. Create an App Password in Google Account Security.
+3. Use that App Password as `SMTP_PASS` (not your normal Gmail password).
+
+Example:
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=dartsruby@gmail.com
+SMTP_PASS=REPLACE_WITH_16_CHAR_APP_PASSWORD
+SMTP_FROM="Dartcounter <dartsruby@gmail.com>"
+APP_BASE_URL=https://your-domain.com
+```
+
+If SMTP is not configured and `NODE_ENV` is not production, `POST /api/auth/forgot-password` returns a `devResetToken` for local testing.
 
 ## User stats
 
