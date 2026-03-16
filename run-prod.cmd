@@ -14,6 +14,12 @@ set AUTODARTS_ALLOW_MOCK_DARTS=false
 REM Ensure devDependencies are installed for build
 set npm_config_production=false
 
+if not exist node_modules\nodemailer\package.json (
+  echo Installing dependencies...
+  call npm install
+  if errorlevel 1 (echo npm install failed & goto :fail)
+)
+
 echo Building...
 call npm run build:all
 if errorlevel 1 (echo build failed & goto :fail)
