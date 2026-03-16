@@ -50,13 +50,21 @@ function Start-Server {
     throw 'Missing dist\server.js (run build first)'
   }
 
+  $logDir = Join-Path (Get-Location) 'logs'
+  if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir | Out-Null
+  }
+  $outLog = Join-Path $logDir 'server.out.log'
+  $errLog = Join-Path $logDir 'server.err.log'
+
   Write-Info "Starting server on http://localhost:$Port ..."
-  $p = Start-Process -FilePath node -ArgumentList @('dist\server.js') -PassThru
-  return $p
+  $p = Start-Process -FilePath node -ArgumentList @('dist\server.js') -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+  return @{ Process = $p; OutLog = $outLog; ErrLog = $errLog }
 }
 
-function Stop-Server($proc) {
-  if ($null -eq $proc) { return }
+function Stop-Server($server) {
+  if ($null -eq $server) { return }
+  $proc = $server.Process
   try {
     if (-not $proc.HasExited) {
       Write-Info "Stopping server (pid $($proc.Id))..."
@@ -106,8 +114,12 @@ Write-Info "Auto-update enabled. Polling every $PollSeconds seconds."
 while ($true) {
   Start-Sleep -Seconds $PollSeconds
 
-  if ($server.HasExited) {
-    Write-Info 'Server exited; rebuilding + restarting...'
+  if ($server.Process.HasExited) {
+    Write-Info "Server exited (code $($server.Process.ExitCode)); rebuilding + restarting..."
+    if (Test-Path $server.ErrLog) {
+      Write-Info 'Last stderr lines:'
+      Get-Content $server.ErrLog -Tail 40 | ForEach-Object { Write-Host $_ }
+    }
     Ensure-Dependencies
     Build-App
     $server = Start-Server
