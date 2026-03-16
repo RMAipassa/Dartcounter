@@ -20,6 +20,12 @@ if not exist node_modules\nodemailer\package.json (
   if errorlevel 1 (echo npm install failed & goto :fail)
 )
 
+if not exist node_modules\dotenv\package.json (
+  echo Installing dependencies...
+  call npm install
+  if errorlevel 1 (echo npm install failed & goto :fail)
+)
+
 echo Building...
 call npm run build:all
 if errorlevel 1 (echo build failed & goto :fail)

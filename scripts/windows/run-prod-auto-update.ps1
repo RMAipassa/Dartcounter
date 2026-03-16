@@ -30,7 +30,8 @@ function Write-Info($msg) {
 function Ensure-Dependencies {
   $missingTypeScript = -not (Test-Path 'node_modules\typescript\package.json')
   $missingNodemailer = -not (Test-Path 'node_modules\nodemailer\package.json')
-  if ($missingTypeScript -or $missingNodemailer) {
+  $missingDotenv = -not (Test-Path 'node_modules\dotenv\package.json')
+  if ($missingTypeScript -or $missingNodemailer -or $missingDotenv) {
     Write-Info 'Installing dependencies (including devDependencies for build)...'
     $env:npm_config_production = 'false'
     npm install
