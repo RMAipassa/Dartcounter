@@ -2205,6 +2205,16 @@ io.on('connection', (socket) => {
     return { userId: user.id, displayName: user.displayName }
   }
 
+  function resolveOptionalAuthIdentity(token?: string): { userId: string; displayName: string } | undefined {
+    if (!token) return undefined
+    try {
+      return resolveAuthIdentity(token)
+    } catch (err) {
+      if (err instanceof GameRuleError && err.code === 'AUTH_INVALID') return undefined
+      throw err
+    }
+  }
+
   socket.on('social:identify', (raw, cb) => {
     try {
       socialIdentifySchema.parse(raw)
@@ -2454,7 +2464,7 @@ io.on('connection', (socket) => {
       const { name, authToken, settings, title, isPublic, tournamentId, tournamentMatchId } = createSchema.parse(raw)
       validateGameSettings(settings)
       validateLobbyStartScorePreset(settings)
-      const auth = resolveAuthIdentity(authToken)
+      const auth = resolveOptionalAuthIdentity(authToken)
       const userId = auth?.userId
       const effectiveName = auth?.displayName ?? name
 
@@ -2632,7 +2642,7 @@ io.on('connection', (socket) => {
     try {
       const { code, name, hostSecret, authToken, asSpectator } = joinSchema.parse(raw)
       if (!code) throw new GameRuleError('NEED_CODE', 'Room code is required')
-      const auth = resolveAuthIdentity(authToken)
+      const auth = resolveOptionalAuthIdentity(authToken)
       const userId = auth?.userId
       const effectiveName = auth?.displayName ?? name
 

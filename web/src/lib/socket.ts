@@ -7,6 +7,25 @@ type AckedSocket = Socket & {
 let socketSingleton: AckedSocket | null = null
 let socketUrl: string | null = null
 let unloadHooked = false
+let authExpiredNotifiedAt = 0
+
+function handleAuthInvalidIfNeeded(res: any): void {
+  if (typeof window === 'undefined') return
+  if (!res || typeof res !== 'object') return
+  if (res.ok !== false || res.code !== 'AUTH_INVALID') return
+
+  try {
+    localStorage.removeItem('dc_authToken')
+    localStorage.removeItem('dc_authDisplayName')
+  } catch {
+    // ignore storage issues
+  }
+
+  const now = Date.now()
+  if (now - authExpiredNotifiedAt < 1200) return
+  authExpiredNotifiedAt = now
+  window.dispatchEvent(new CustomEvent('dc:authExpired'))
+}
 
 export function getSocket(url: string): AckedSocket {
   if (socketSingleton && socketUrl === url) return socketSingleton
@@ -29,6 +48,7 @@ export function getSocket(url: string): AckedSocket {
         if (done) return
         done = true
         clearTimeout(t)
+        handleAuthInvalidIfNeeded(res)
         resolve(res)
       })
     })

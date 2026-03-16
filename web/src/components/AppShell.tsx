@@ -69,8 +69,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     function onOpenMenu() {
       setOpen(true)
     }
+    function onAuthExpired() {
+      setIncomingRequestCount(0)
+      setToast('Session expired. Please sign in again.')
+      setTimeout(() => setToast(null), 2600)
+    }
     window.addEventListener('dc:openMenu', onOpenMenu as any)
-    return () => window.removeEventListener('dc:openMenu', onOpenMenu as any)
+    window.addEventListener('dc:authExpired', onAuthExpired as any)
+    return () => {
+      window.removeEventListener('dc:openMenu', onOpenMenu as any)
+      window.removeEventListener('dc:authExpired', onAuthExpired as any)
+    }
   }, [])
 
   useEffect(() => {
