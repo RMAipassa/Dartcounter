@@ -51,11 +51,6 @@ function Start-Server {
   }
 
   Write-Info "Starting server on http://localhost:$Port ..."
-  try {
-    Start-Process "http://localhost:$Port/" | Out-Null
-  } catch {
-    Write-Info 'Could not open browser automatically; continuing.'
-  }
   $p = Start-Process -FilePath node -ArgumentList @('dist\server.js') -PassThru
   return $p
 }
