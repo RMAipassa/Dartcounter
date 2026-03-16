@@ -1,6 +1,7 @@
 param(
   [int]$Port = 7777,
-  [int]$PollSeconds = 30
+  [int]$PollSeconds = 30,
+  [string]$AppBaseUrl = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +20,10 @@ Set-Location (Resolve-Path (Join-Path $PSScriptRoot '..\..'))
 
 $env:PORT = "$Port"
 $env:NODE_ENV = 'production'
+$appBase = $AppBaseUrl.Trim()
+if (-not [string]::IsNullOrWhiteSpace($appBase)) {
+  $env:APP_BASE_URL = $appBase
+}
 $env:AUTODARTS_MODE = 'REAL'
 $env:AUTODARTS_ALLOW_MOCK_BINDING = 'false'
 $env:AUTODARTS_ALLOW_MOCK_DARTS = 'false'
