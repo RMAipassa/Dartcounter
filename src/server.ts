@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import cors from 'cors'
 import express from 'express'
 import http from 'http'
@@ -130,6 +131,14 @@ const mailTransport =
         auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
       })
     : null
+
+if (mailTransport) {
+  // eslint-disable-next-line no-console
+  console.log(`[auth] SMTP enabled via ${smtpHost}:${Number.isFinite(smtpPort) ? smtpPort : 587} (${smtpSecure ? 'secure' : 'starttls'})`)
+} else {
+  // eslint-disable-next-line no-console
+  console.warn('[auth] SMTP disabled: set SMTP_HOST and SMTP_FROM (and SMTP credentials) to enable password reset emails')
+}
 
 async function sendPasswordResetEmail(args: { toEmail: string; displayName: string; token: string }): Promise<boolean> {
   if (!mailTransport) return false
