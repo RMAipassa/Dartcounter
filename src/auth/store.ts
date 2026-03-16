@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'crypto'
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 
@@ -24,6 +24,15 @@ type SessionRecord = {
   expiresAt: number
 }
 
+type PasswordResetRecord = {
+  id: string
+  userId: string
+  tokenHash: string
+  createdAt: number
+  expiresAt: number
+  usedAt: number | null
+}
+
 type FriendStatus = 'PENDING' | 'ACCEPTED' | 'BLOCKED'
 
 type FriendshipRecord = {
@@ -39,11 +48,13 @@ type AuthStoreData = {
   users: UserRecord[]
   sessions: SessionRecord[]
   friendships: FriendshipRecord[]
+  passwordResets: PasswordResetRecord[]
 }
 
 const dataFile = path.join(process.cwd(), 'data', 'auth-store.json')
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14
 const SESSION_TTL_REMEMBER_ME_MS = 1000 * 60 * 60 * 24 * 90
+const PASSWORD_RESET_TTL_MS = 1000 * 60 * 30
 
 let db: AuthStoreData = loadDb()
 
@@ -343,6 +354,48 @@ export function revokeSession(token?: string | null): void {
   if (db.sessions.length !== before) persistDb()
 }
 
+export function createPasswordResetRequest(email: string): { token: string; user: PublicUser } | null {
+  const normalized = email.trim().toLowerCase()
+  if (!normalized) return null
+  const user = db.users.find((u) => u.email === normalized)
+  if (!user) return null
+
+  prunePasswordResets()
+  const token = randomId(32)
+  const reset: PasswordResetRecord = {
+    id: randomId(10),
+    userId: user.id,
+    tokenHash: hashResetToken(token),
+    createdAt: Date.now(),
+    expiresAt: Date.now() + PASSWORD_RESET_TTL_MS,
+    usedAt: null,
+  }
+  db.passwordResets.push(reset)
+  persistDb()
+  return { token, user: toPublicUser(user) }
+}
+
+export function consumePasswordReset(args: { token: string; newPassword: string }): PublicUser | null {
+  prunePasswordResets()
+  const tokenHash = hashResetToken(args.token)
+  const now = Date.now()
+  const reset = db.passwordResets.find((r) => r.tokenHash === tokenHash && r.usedAt == null && r.expiresAt > now)
+  if (!reset) return null
+
+  const user = db.users.find((u) => u.id === reset.userId)
+  if (!user) return null
+
+  const salt = randomId(16)
+  user.passwordSalt = salt
+  user.passwordHash = hashPassword(args.newPassword, salt)
+
+  reset.usedAt = now
+  db.sessions = db.sessions.filter((s) => s.userId !== user.id)
+  db.passwordResets = db.passwordResets.filter((r) => r.userId !== user.id || r.id === reset.id)
+  persistDb()
+  return toPublicUser(user)
+}
+
 function toPublicUser(u: UserRecord): PublicUser {
   return {
     id: u.id,
@@ -370,6 +423,17 @@ function pruneSessions(): void {
   if (db.sessions.length !== before) persistDb()
 }
 
+function prunePasswordResets(): void {
+  const now = Date.now()
+  const before = db.passwordResets.length
+  db.passwordResets = db.passwordResets.filter((r) => r.expiresAt > now && r.usedAt == null)
+  if (db.passwordResets.length !== before) persistDb()
+}
+
+function hashResetToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
+
 function randomId(bytes: number): string {
   return randomBytes(bytes).toString('base64url')
 }
@@ -379,7 +443,7 @@ function loadDb(): AuthStoreData {
     const dir = path.dirname(dataFile)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     if (!fs.existsSync(dataFile)) {
-      const initial: AuthStoreData = { users: [], sessions: [], friendships: [] }
+      const initial: AuthStoreData = { users: [], sessions: [], friendships: [], passwordResets: [] }
       fs.writeFileSync(dataFile, JSON.stringify(initial, null, 2), 'utf8')
       return initial
     }
@@ -390,9 +454,10 @@ function loadDb(): AuthStoreData {
       users: Array.isArray(parsed?.users) ? parsed.users : [],
       sessions: Array.isArray(parsed?.sessions) ? parsed.sessions : [],
       friendships: Array.isArray(parsed?.friendships) ? parsed.friendships : [],
+      passwordResets: Array.isArray(parsed?.passwordResets) ? parsed.passwordResets : [],
     }
   } catch {
-    return { users: [], sessions: [], friendships: [] }
+    return { users: [], sessions: [], friendships: [], passwordResets: [] }
   }
 }
 

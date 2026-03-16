@@ -2,6 +2,7 @@ import cors from 'cors'
 import express from 'express'
 import http from 'http'
 import next from 'next'
+import nodemailer from 'nodemailer'
 import path from 'path'
 import { randomBytes } from 'crypto'
 import { Server, type Socket } from 'socket.io'
@@ -12,6 +13,8 @@ import {
   authenticateUser,
   blockUser,
   createSession,
+  createPasswordResetRequest,
+  consumePasswordReset,
   getUserById,
   getUserAutodartsCredentials,
   getUserBySessionToken,
@@ -110,6 +113,48 @@ function isAdminUser(user: { id: string; email?: string | null } | null | undefi
   return false
 }
 
+const smtpHost = process.env.SMTP_HOST?.trim() || ''
+const smtpPort = Number(process.env.SMTP_PORT ?? 587)
+const smtpSecure = String(process.env.SMTP_SECURE ?? 'false') === 'true'
+const smtpUser = process.env.SMTP_USER?.trim() || ''
+const smtpPass = process.env.SMTP_PASS?.trim() || ''
+const smtpFrom = process.env.SMTP_FROM?.trim() || ''
+const appBaseUrl = process.env.APP_BASE_URL?.trim() || `http://localhost:${Number(process.env.PORT ?? 3001)}`
+
+const mailTransport =
+  smtpHost && smtpFrom
+    ? nodemailer.createTransport({
+        host: smtpHost,
+        port: Number.isFinite(smtpPort) ? smtpPort : 587,
+        secure: smtpSecure,
+        auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
+      })
+    : null
+
+async function sendPasswordResetEmail(args: { toEmail: string; displayName: string; token: string }): Promise<boolean> {
+  if (!mailTransport) return false
+  const resetLink = `${appBaseUrl.replace(/\/$/, '')}/account?resetToken=${encodeURIComponent(args.token)}`
+  const html = `<p>Hello ${escapeHtml(args.displayName || 'Player')},</p><p>Use this link to reset your password:</p><p><a href="${resetLink}">${resetLink}</a></p><p>This link expires in 30 minutes.</p><p>If you did not request this, you can ignore this email.</p>`
+  const text = `Hello ${args.displayName || 'Player'},\n\nUse this link to reset your password:\n${resetLink}\n\nThis link expires in 30 minutes.\n\nIf you did not request this, you can ignore this email.`
+  await mailTransport.sendMail({
+    from: smtpFrom,
+    to: args.toEmail,
+    subject: 'Reset your Dartcounter password',
+    text,
+    html,
+  })
+  return true
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
 function withNamesForGlobalMode(mode: {
   allTime: {
     mostWins: { userId: string; value: number } | null
@@ -206,6 +251,15 @@ const loginSchema = z.object({
 
 const logoutSchema = z.object({
   token: z.string().trim().min(1).max(256),
+})
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email().max(160),
+})
+
+const resetPasswordSchema = z.object({
+  token: z.string().trim().min(24).max(256),
+  newPassword: z.string().min(8).max(200),
 })
 
 const updateAutodartsDeviceSchema = z.object({
@@ -331,6 +385,44 @@ app.post('/api/auth/logout', (req, res) => {
     res.status(200).json({ ok: true })
   } catch {
     res.status(400).json({ ok: false, message: 'Invalid logout request' })
+  }
+})
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const body = forgotPasswordSchema.parse(req.body)
+    const request = createPasswordResetRequest(body.email)
+    if (request) {
+      const sent = await sendPasswordResetEmail({
+        toEmail: request.user.email,
+        displayName: request.user.displayName,
+        token: request.token,
+      }).catch(() => false)
+
+      if (!sent && process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.warn(`Password reset requested for ${request.user.email}, but SMTP is not configured or failed.`)
+        res.status(200).json({ ok: true, devResetToken: request.token })
+        return
+      }
+    }
+    res.status(200).json({ ok: true })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Invalid forgot password request' })
+  }
+})
+
+app.post('/api/auth/reset-password', (req, res) => {
+  try {
+    const body = resetPasswordSchema.parse(req.body)
+    const user = consumePasswordReset({ token: body.token, newPassword: body.newPassword })
+    if (!user) {
+      res.status(400).json({ ok: false, message: 'Invalid or expired reset token' })
+      return
+    }
+    res.status(200).json({ ok: true })
+  } catch {
+    res.status(400).json({ ok: false, message: 'Invalid reset password request' })
   }
 })
 

@@ -193,6 +193,13 @@ export default function AccountPage() {
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [rememberMe, setRememberMe] = useState(true)
+  const [forgotMode, setForgotMode] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotMessage, setForgotMessage] = useState<string | null>(null)
+  const [resetToken, setResetToken] = useState('')
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('')
+  const [resetMessage, setResetMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [me, setMe] = useState<MeUser | null>(null)
@@ -212,6 +219,12 @@ export default function AccountPage() {
   const [incomingInvites, setIncomingInvites] = useState<IncomingRoomInvite[]>([])
   const [uiDensity, setUiDensity] = useState<'spacious' | 'compact'>('spacious')
   const [statsModeView, setStatsModeView] = useState<'X01' | 'AROUND'>('X01')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const token = new URLSearchParams(window.location.search).get('resetToken')?.trim() ?? ''
+    setResetToken(token)
+  }, [])
 
   useEffect(() => {
     void refreshMe(serverUrl, setMe, setStats)
@@ -274,6 +287,8 @@ export default function AccountPage() {
 
   async function submit() {
     setError(null)
+    setForgotMessage(null)
+    setResetMessage(null)
     setBusy(true)
     try {
       const endpoint = mode === 'LOGIN' ? '/api/auth/login' : '/api/auth/register'
@@ -301,6 +316,65 @@ export default function AccountPage() {
       await refreshMe(serverUrl, setMe, setStats)
       if (data.user?.autodartsDeviceId) setAutodartsDeviceIdInput(data.user.autodartsDeviceId)
       setPassword('')
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitForgotPassword() {
+    setError(null)
+    setForgotMessage(null)
+    setBusy(true)
+    try {
+      const res = await fetch(`${serverUrl}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Could not request password reset')
+      if (data?.devResetToken) {
+        setResetToken(String(data.devResetToken))
+        setResetMessage('Reset token generated in dev mode. Set a new password below.')
+      } else {
+        setForgotMessage('If an account exists for that email, a reset link has been sent.')
+      }
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitResetPassword() {
+    setError(null)
+    setResetMessage(null)
+    if (resetPassword !== resetPasswordConfirm) {
+      setError('Passwords do not match')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await fetch(`${serverUrl}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: resetToken.trim(), newPassword: resetPassword }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) throw new Error(data?.message ?? 'Could not reset password')
+      localStorage.removeItem('dc_authToken')
+      localStorage.removeItem('dc_authDisplayName')
+      setResetPassword('')
+      setResetPasswordConfirm('')
+      setResetMessage('Password reset successful. Please sign in with your new password.')
+      setMode('LOGIN')
+      setForgotMode(false)
+      if (typeof window !== 'undefined' && window.location.search.includes('resetToken=')) {
+        window.history.replaceState(null, '', '/account')
+      }
+      setResetToken('')
     } catch (e: any) {
       setError(e?.message ?? String(e))
     } finally {
@@ -648,45 +722,82 @@ export default function AccountPage() {
       ) : (
         <div className="card" style={{ padding: 16 }}>
           <div className="row">
-            <button className="btn" disabled={mode === 'LOGIN'} onClick={() => setMode('LOGIN')}>
+            <button className={mode === 'LOGIN' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setMode('LOGIN')}>
               Login
             </button>
-            <button className="btn" disabled={mode === 'REGISTER'} onClick={() => setMode('REGISTER')}>
+            <button className={mode === 'REGISTER' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setMode('REGISTER')}>
               Register
             </button>
-          </div>
-
-          <div className="col" style={{ marginTop: 12 }}>
-            <label className="help">Email</label>
-            <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
-
-            {mode === 'REGISTER' ? (
-              <>
-                <label className="help">Display name</label>
-                <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ruben" />
-              </>
-            ) : null}
-
-            <label className="help">Password</label>
-            <input
-              className="input"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
-            />
-
-            {mode === 'LOGIN' ? (
-              <label className="pill" style={{ cursor: 'pointer' }}>
-                <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
-                Remember me
-              </label>
-            ) : null}
-
-            <button className="btn btnPrimary" disabled={busy || !email.trim() || !password} onClick={submit}>
-              {busy ? 'Working...' : mode === 'LOGIN' ? 'Sign in' : 'Create account'}
+            <button className={forgotMode ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setForgotMode((v) => !v)}>
+              Forgot password
             </button>
           </div>
+
+          {resetToken ? (
+            <div className="col" style={{ marginTop: 12 }}>
+              <label className="help">New password</label>
+              <input
+                className="input"
+                type="password"
+                value={resetPassword}
+                onChange={(e) => setResetPassword(e.target.value)}
+                placeholder="At least 8 characters"
+              />
+              <label className="help">Confirm new password</label>
+              <input
+                className="input"
+                type="password"
+                value={resetPasswordConfirm}
+                onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                placeholder="Repeat your new password"
+              />
+              <button className="btn btnPrimary" disabled={busy || resetPassword.length < 8 || resetPasswordConfirm.length < 8} onClick={submitResetPassword}>
+                {busy ? 'Working...' : 'Reset password'}
+              </button>
+              {resetMessage ? <div className="help">{resetMessage}</div> : null}
+            </div>
+          ) : forgotMode ? (
+            <div className="col" style={{ marginTop: 12 }}>
+              <label className="help">Account email</label>
+              <input className="input" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="name@example.com" />
+              <button className="btn btnPrimary" disabled={busy || !forgotEmail.trim()} onClick={submitForgotPassword}>
+                {busy ? 'Working...' : 'Send reset link'}
+              </button>
+              {forgotMessage ? <div className="help">{forgotMessage}</div> : null}
+            </div>
+          ) : (
+            <div className="col" style={{ marginTop: 12 }}>
+              <label className="help">Email</label>
+              <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
+
+              {mode === 'REGISTER' ? (
+                <>
+                  <label className="help">Display name</label>
+                  <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ruben" />
+                </>
+              ) : null}
+
+              <label className="help">Password</label>
+              <input
+                className="input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 8 characters"
+              />
+
+              {mode === 'LOGIN' ? (
+                <label className="pill" style={{ cursor: 'pointer' }}>
+                  <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+                  Remember me
+                </label>
+              ) : null}
+
+              <button className="btn btnPrimary" disabled={busy || !email.trim() || !password} onClick={submit}>
+                {busy ? 'Working...' : mode === 'LOGIN' ? 'Sign in' : 'Create account'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
