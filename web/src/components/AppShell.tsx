@@ -359,10 +359,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {!hideTopbar ? (
         <div className="topbar">
           <a className="brand" href="/">
-            Dartcounter
+            <span className="brandMark" aria-hidden="true"><i /><i /><i /></span>
+            <span>Dartcounter</span>
           </a>
-          <button className="btn" onClick={() => setOpen((v) => !v)} aria-label="Menu">
-            {incomingRequestCount > 0 ? `Menu (${incomingRequestCount})` : 'Menu'}
+          <nav className="topbarNav" aria-label="Main navigation">
+            <a className={pathname.startsWith('/lobbies') ? 'topbarLink topbarLinkActive' : 'topbarLink'} href="/lobbies">Lobbies</a>
+            <a className={pathname.startsWith('/tournaments') ? 'topbarLink topbarLinkActive' : 'topbarLink'} href="/tournaments">Tournaments</a>
+            <a className={pathname.startsWith('/account') ? 'topbarLink topbarLinkActive' : 'topbarLink'} href="/account">Account</a>
+          </nav>
+          <button className="menuTrigger" onClick={() => setOpen((v) => !v)} aria-label="Menu">
+            <span>{incomingRequestCount > 0 ? `Menu ${incomingRequestCount}` : 'Menu'}</span>
+            <i aria-hidden="true" />
           </button>
         </div>
       ) : null}

@@ -4,98 +4,50 @@ import { useEffect, useState } from 'react'
 import { getServerUrl } from '@/lib/config'
 
 export default function HomePage() {
-  const [isMobile, setIsMobile] = useState(false)
-  const [serverUrl, setServerUrl] = useState<string>('')
+  const [serverUrl, setServerUrl] = useState('')
 
   useEffect(() => {
     setServerUrl(getServerUrl())
   }, [])
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const mq = window.matchMedia('(max-width: 520px)')
-    const onChange = () => setIsMobile(Boolean(mq.matches))
-    onChange()
-    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange)
-    else mq.addListener(onChange)
-    return () => {
-      if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', onChange)
-      else mq.removeListener(onChange)
-    }
-  }, [])
-
   return (
-    <div className="col" style={{ gap: 18 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <div>
-          <h1 className="title">Dartcounter Web</h1>
-          <p className="subtitle">{isMobile ? 'Pick where you want to go.' : 'Create matches, join rooms, and play with friends.'}</p>
+    <main className="homePage">
+      <section className="homeHero">
+        <div className="homeHeroCopy">
+          <span className="eyebrow">Match night starts here</span>
+          <h1>Keep score.<br /><em>Stay in the game.</em></h1>
+          <p>Fast, live darts scoring for the board in front of you and the friends across the world.</p>
+          <div className="homeHeroActions">
+            <a className="btn btnPrimary homeMainAction" href="/create">Start a match <span aria-hidden="true">&rarr;</span></a>
+            <a className="btn homeMainAction" href="/join">Join with a code</a>
+          </div>
         </div>
-        <span className="pill">Server: {serverUrl || 'auto'}</span>
-      </div>
 
-      <div className="mobileHomeTiles">
-        <a className="mobileHomeTile" href="/create">
-          <span className="mobileHomeTileIcon mobileHomeTileIconRose">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
-              <circle cx="12" cy="12" r="4.8" fill="none" stroke="currentColor" strokeWidth="1.8" />
-              <circle cx="12" cy="12" r="1.8" fill="currentColor" />
-            </svg>
-          </span>
-          <span className="mobileHomeTileTitle">New Match</span>
-          <span className="mobileHomeTileSub">Create a lobby</span>
-        </a>
-        <a className="mobileHomeTile" href="/join">
-          <span className="mobileHomeTileIcon mobileHomeTileIconGold">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 5h12v2a6 6 0 0 1-4 5.64V16h3v2H7v-2h3v-3.36A6 6 0 0 1 6 7V5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            </svg>
-          </span>
-          <span className="mobileHomeTileTitle">Join Lobby</span>
-          <span className="mobileHomeTileSub">Enter room code</span>
-        </a>
-        <a className="mobileHomeTile" href="/lobbies">
-          <span className="mobileHomeTileIcon mobileHomeTileIconMint">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="8" cy="9" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-              <circle cx="16" cy="9" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-              <path d="M4 18a4 4 0 0 1 8 0M12 18a4 4 0 0 1 8 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          </span>
-          <span className="mobileHomeTileTitle">Public Lobbies</span>
-          <span className="mobileHomeTileSub">Browse open rooms</span>
-        </a>
-        <a className="mobileHomeTile" href="/daily-checkout">
-          <span className="mobileHomeTileIcon mobileHomeTileIconMint">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
-              <path d="M12 8v4l3 2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          </span>
-          <span className="mobileHomeTileTitle">Daily Checkout</span>
-          <span className="mobileHomeTileSub">Wordle-style daily challenge</span>
-        </a>
-        <a className="mobileHomeTile" href="/account">
-          <span className="mobileHomeTileIcon mobileHomeTileIconBlue">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 17V9m6 8V5m6 12v-6" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
-            </svg>
-          </span>
-          <span className="mobileHomeTileTitle">Account</span>
-          <span className="mobileHomeTileSub">Friends and stats</span>
-        </a>
-        <a className="mobileHomeTile" href="/tournaments">
-          <span className="mobileHomeTileIcon mobileHomeTileIconRose">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 5h12v2a6 6 0 0 1-4 5.64V16h3v2H7v-2h3v-3.36A6 6 0 0 1 6 7V5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            </svg>
-          </span>
-          <span className="mobileHomeTileTitle">Tournaments</span>
-          <span className="mobileHomeTileSub">Single-elim brackets</span>
-        </a>
-      </div>
+        <div className="homeBoardStage" aria-hidden="true">
+          <div className="homeBoard">
+            <span className="homeBoardRing homeBoardRingOne" />
+            <span className="homeBoardRing homeBoardRingTwo" />
+            <span className="homeBoardRing homeBoardBull" />
+            <span className="homeDart homeDartOne" />
+            <span className="homeDart homeDartTwo" />
+            <span className="homeDart homeDartThree" />
+          </div>
+          <div className="homeBoardCaption"><b>501</b><span>Double out<br />Best of 5</span></div>
+        </div>
+      </section>
 
-    </div>
+      <section className="homeLiveStrip">
+        <div><span className="liveDot" /> Ready to throw</div>
+        <a href="/lobbies">Browse public tables <span aria-hidden="true">&rarr;</span></a>
+      </section>
+
+      <section className="homeModeRail" aria-label="More ways to play">
+        <a href="/daily-checkout"><span>01</span><strong>Daily checkout</strong><small>One finish. One chance.</small></a>
+        <a href="/tournaments"><span>02</span><strong>Tournaments</strong><small>Build a knockout bracket.</small></a>
+        <a href="/account"><span>03</span><strong>Your form</strong><small>Stats, friends and boards.</small></a>
+      </section>
+
+      <div className="homeEndpoint">Connected to <span>{serverUrl || 'automatic server'}</span></div>
+    </main>
   )
 }
