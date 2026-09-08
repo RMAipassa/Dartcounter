@@ -148,6 +148,44 @@ set ELEVENLABS_OUTPUT_FORMAT=mp3_44100_128
 npm run generate:callouts:elevenlabs
 ```
 
+## Optional darts-caller process
+
+The Windows dev and production launchers install/update the latest Windows release of
+[`lbormann/darts-caller`](https://github.com/lbormann/darts-caller) in `tools/darts-caller`.
+It is not started unless explicitly enabled.
+
+Set these environment variables on the Windows machine:
+
+```bat
+set DARTS_CALLER_AUTO_START=true
+set DARTS_CALLER_AUTODARTS_EMAIL=you@example.com
+set DARTS_CALLER_AUTODARTS_PASSWORD=your-password
+set DARTS_CALLER_AUTODARTS_BOARD_ID=your-board-id
+```
+
+Optional settings:
+
+```bat
+set DARTS_CALLER_MEDIA_PATH=C:\darts-caller-media
+set DARTS_CALLER_EXTRA_ARGS=-CCP 0 -CRL 1
+```
+
+The following scripts install/update and conditionally start darts-caller:
+
+- `run-dev.cmd`
+- `run-prod.cmd`
+- `scripts/windows/run-prod-with-tunnel.cmd`
+- `scripts/windows/run-prod-auto-update.ps1`
+
+Setup and launch can also be run separately:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup-darts-caller.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\start-darts-caller.ps1
+```
+
+Important: the upstream darts-caller follows games on Autodarts using its own account and board configuration. Starting it does not make it consume Dartcounter's custom match events directly.
+
 ## Accounts (foundation)
 
 Basic account auth is now available with persistent local storage in `data/auth-store.json`.

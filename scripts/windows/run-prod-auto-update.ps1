@@ -44,6 +44,18 @@ function Ensure-Dependencies {
   }
 }
 
+function Ensure-DartsCaller {
+  Write-Info 'Ensuring darts-caller...'
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'setup-darts-caller.ps1')
+  if ($LASTEXITCODE -ne 0) { throw 'darts-caller setup failed' }
+}
+
+function Start-DartsCaller {
+  Write-Info 'Starting darts-caller if enabled...'
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-darts-caller.ps1')
+  if ($LASTEXITCODE -ne 0) { throw 'darts-caller start failed' }
+}
+
 function Build-App {
   Write-Info 'Building...'
   $env:npm_config_production = 'false'
@@ -128,6 +140,8 @@ function Git-PullFastForward {
 }
 
 Ensure-Dependencies
+Ensure-DartsCaller
+Start-DartsCaller
 Build-App
 $server = Start-Server
 Show-SmtpStatus $server
@@ -144,6 +158,8 @@ while ($true) {
       Get-Content $server.ErrLog -Tail 40 | ForEach-Object { Write-Host $_ }
     }
     Ensure-Dependencies
+    Ensure-DartsCaller
+    Start-DartsCaller
     Build-App
     $server = Start-Server
     Show-SmtpStatus $server
@@ -170,6 +186,8 @@ while ($true) {
     Stop-Server $server
     Git-PullFastForward
     Ensure-Dependencies
+    Ensure-DartsCaller
+    Start-DartsCaller
     Build-App
     $server = Start-Server
     Show-SmtpStatus $server

@@ -21,6 +21,16 @@ call npm install
 if errorlevel 1 goto :fail
 
 echo.
+echo Ensuring darts-caller...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-darts-caller.ps1"
+if errorlevel 1 goto :fail
+
+echo.
+echo Starting darts-caller if enabled...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-darts-caller.ps1"
+if errorlevel 1 goto :fail
+
+echo.
 echo Building...
 call npm run build:all
 if errorlevel 1 goto :fail

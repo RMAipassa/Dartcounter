@@ -26,6 +26,14 @@ if not exist node_modules\dotenv\package.json (
   if errorlevel 1 (echo npm install failed & goto :fail)
 )
 
+echo Ensuring darts-caller...
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\setup-darts-caller.ps1"
+if errorlevel 1 (echo darts-caller setup failed & goto :fail)
+
+echo Starting darts-caller if enabled...
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\start-darts-caller.ps1"
+if errorlevel 1 (echo darts-caller start failed & goto :fail)
+
 echo Building...
 call npm run build:all
 if errorlevel 1 (echo build failed & goto :fail)
