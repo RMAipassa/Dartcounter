@@ -77,6 +77,9 @@ export default function CreatePage() {
       localStorage.setItem('dc_name', effectiveName)
       localStorage.setItem('dc_hostSecret', res.hostSecret)
       localStorage.setItem('dc_role', res.role ?? 'PLAYER')
+      if (res.playerId) {
+        localStorage.setItem(`dc_controlled_${res.code}`, JSON.stringify([res.playerId]))
+      }
       if (normalizedSettings.gameType === 'PRACTICE') router.push(`/room/${res.code}/game`)
       else router.push(`/room/${res.code}/lobby`)
     } catch (e: any) {

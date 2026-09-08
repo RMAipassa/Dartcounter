@@ -238,7 +238,13 @@ export default function GamePage() {
         asSpectator: role === 'SPECTATOR',
       })
       .then((res: any) => {
-      if (!res?.ok) setToast(res?.message ?? 'Failed to join')
+        if (!res?.ok) {
+          setToast(res?.message ?? 'Failed to join')
+          return
+        }
+        if (res.role === 'PLAYER' && res.playerId) {
+          rememberControlledPlayer(code, res.playerId)
+        }
       })
 
     return () => {
@@ -493,7 +499,7 @@ export default function GamePage() {
     }
   }
 
-  function toggleVoiceInput() {
+  async function toggleVoiceInput() {
     if (!voiceSupported || typeof window === 'undefined') {
       setToast('Voice input not supported in this browser')
       setTimeout(() => setToast(null), 1800)
@@ -508,8 +514,33 @@ export default function GamePage() {
       return
     }
 
+    const permissionGranted = await requestMicrophonePermission()
+    if (!permissionGranted) return
+
     voiceManualStopRef.current = false
-    startVoiceInput()
+    if (!startVoiceInput()) {
+      setToast('Voice input could not start. Opera GX may not provide the required speech service.')
+      setTimeout(() => setToast(null), 3200)
+    }
+  }
+
+  async function requestMicrophonePermission(): Promise<boolean> {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setToast('Microphone access requires HTTPS or localhost in a supported browser')
+      setTimeout(() => setToast(null), 3000)
+      return false
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach((track) => track.stop())
+      return true
+    } catch (err: any) {
+      const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError'
+      setToast(denied ? 'Microphone permission was blocked. Allow it in site settings and try again.' : 'No microphone is available.')
+      setTimeout(() => setToast(null), 3400)
+      return false
+    }
   }
 
   function startVoiceInput(): boolean {
@@ -538,14 +569,14 @@ export default function GamePage() {
       }
     }
 
-    rec.onerror = () => {
+    rec.onerror = (evt: any) => {
       setVoiceListening(false)
       speechRef.current = null
       if (suppressVoiceRestartRef.current) {
         return
       }
-      setToast('Voice capture failed')
-      setTimeout(() => setToast(null), 1800)
+      setToast(voiceRecognitionErrorMessage(evt?.error))
+      setTimeout(() => setToast(null), 3400)
     }
 
     rec.onresult = (evt: any) => {
@@ -670,7 +701,7 @@ export default function GamePage() {
             <span className="pill">Active player board: {autodartsActivePlayerName ?? 'none'}</span>
             {autodartsPerDartOnly ? <span className="pill" style={{ color: 'var(--accent)' }}>Per-dart only</span> : null}
             {autodartsLastDart ? <span className="pill">Last dart: {dartToLabel(autodartsLastDart)}</span> : null}
-            <button className="btn" onClick={toggleVoiceInput} disabled={!voiceSupported || finished}>
+            <button className="btn" onClick={() => void toggleVoiceInput()} disabled={finished}>
               {voiceListening ? 'Stop voice' : 'Voice input'}
             </button>
             <button className="btn" onClick={() => setVoiceHelpOpen((v) => !v)}>
@@ -757,7 +788,7 @@ export default function GamePage() {
           setTotal={setTotal}
           darts={darts}
           setDarts={setDarts}
-          onVoiceInput={toggleVoiceInput}
+          onVoiceInput={() => void toggleVoiceInput()}
           voiceAlwaysOn={voiceAlwaysOn}
           setVoiceAlwaysOn={setVoiceAlwaysOn}
           voiceSupported={voiceSupported}
@@ -1313,7 +1344,6 @@ function MobileTurnEntry({
           className="entryMic"
           onClick={onVoiceInput}
           aria-label={voiceListening ? 'Stop voice input' : 'Start voice input'}
-          disabled={!voiceSupported}
           title={voiceSupported ? undefined : 'Voice input not supported in this browser'}
         >
           {voiceListening ? 'Stop' : 'Mic'}
@@ -2060,6 +2090,26 @@ function canSubmitForCurrent(code: string, currentPlayerId: string): boolean {
   } catch {
     return false
   }
+}
+
+function rememberControlledPlayer(code: string, playerId: string): void {
+  try {
+    const key = `dc_controlled_${code.toUpperCase()}`
+    const ids = JSON.parse(localStorage.getItem(key) ?? '[]') as string[]
+    if (!ids.includes(playerId)) localStorage.setItem(key, JSON.stringify([...ids, playerId]))
+  } catch {
+    localStorage.setItem(`dc_controlled_${code.toUpperCase()}`, JSON.stringify([playerId]))
+  }
+}
+
+function voiceRecognitionErrorMessage(error?: string): string {
+  if (error === 'not-allowed' || error === 'service-not-allowed') {
+    return 'Speech recognition was blocked. Allow microphone and speech access in browser settings.'
+  }
+  if (error === 'audio-capture') return 'No working microphone was found.'
+  if (error === 'network') return 'The browser speech service is unavailable. Opera GX may not support it.'
+  if (error === 'no-speech') return 'No speech was detected. Try again and speak closer to the microphone.'
+  return 'Voice capture failed in this browser.'
 }
 
 function EnterTurnCard({
