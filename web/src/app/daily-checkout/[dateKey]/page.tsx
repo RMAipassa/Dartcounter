@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import type { Dart } from '@/lib/types'
+import DartKeypad from '@/components/DartKeypad'
+import { ScoringHeader, ScoringMenu, ScoringMenuSection } from '@/components/ScoringScreen'
 
 type DailyRow = {
   rank: number
@@ -35,8 +37,6 @@ type Turn = {
   remainingAfter: number
 }
 
-type DartKind = 'MISS' | 'S' | 'D' | 'T' | 'SB' | 'DB'
-
 export default function DailyCheckoutGamePage() {
   const params = useParams<{ dateKey: string }>()
   const serverUrl = useMemo(() => getServerUrl(), [])
@@ -50,16 +50,19 @@ export default function DailyCheckoutGamePage() {
   const [remaining, setRemaining] = useState<number | null>(null)
   const [darts, setDarts] = useState<Dart[]>(toEditorDarts([]))
   const [submitted, setSubmitted] = useState(false)
+  const [revision, setRevision] = useState(0)
 
   useEffect(() => {
     setTurns([])
+    setDarts(toEditorDarts([]))
+    setRevision((previous) => previous + 1)
     setRemaining(null)
     setSubmitted(false)
     void loadView(serverUrl, dateKey, setView, setRemaining, setError)
   }, [serverUrl, dateKey])
 
   async function refresh() {
-    await loadView(serverUrl, dateKey, setView, setRemaining, setError)
+    await loadView(serverUrl, dateKey, setView, () => {}, setError)
   }
 
   async function addTurn() {
@@ -86,6 +89,7 @@ export default function DailyCheckoutGamePage() {
     setTurns(nextTurns)
     setRemaining(nextRemaining)
     setDarts(toEditorDarts([]))
+    setRevision((previous) => previous + 1)
 
     if (nextRemaining === 0 && !submitted) {
       const dartsUsed = nextTurns.reduce((sum, t) => sum + t.dartsThrown, 0)
@@ -134,70 +138,61 @@ export default function DailyCheckoutGamePage() {
     setTurns([])
     setRemaining(view.target)
     setDarts(toEditorDarts([]))
+    setRevision((previous) => previous + 1)
     setSubmitted(false)
     setError(null)
   }
 
   return (
-    <div className="col" style={{ gap: 16 }}>
-      <div className="card" style={{ padding: 16 }}>
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div>
-            <h1 className="title">Daily Checkout Game</h1>
-            <p className="subtitle">Use the same 3-dart editor as X01 and submit one full turn at a time.</p>
+    <main className="gamePage">
+      <ScoringHeader title="Daily checkout" detail={view?.dateKey ?? dateKey} back="/daily-checkout" backLabel="Back to calendar" />
+      <div className="gameGrid" data-entry={remaining !== 0}>
+        <section className="scoreboard" aria-label="Checkout score">
+          <div className="gamePlayers" data-solo="true">
+            <article className="playerCard" data-current="true">
+              <div className="scoreCardHeader"><strong className="scoreName">{remaining === 0 ? 'Checkout complete' : 'Remaining'}</strong><span className="scoreTurn">Double out</span></div>
+              <div className="playerBigNum">{remaining ?? '–'}</div>
+              <div className="scoreMeta"><span>Target {view?.target ?? '–'}</span><span>{turns.length} visits</span><span>{turns.reduce((sum, t) => sum + t.dartsThrown, 0)} darts</span></div>
+            </article>
           </div>
-          <a className="btn" href="/daily-checkout">
-            Back to calendar
-          </a>
-        </div>
-        <div className="row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
-          <span className="pill">Day: {view?.dateKey ?? dateKey}</span>
-          <span className="pill">Target: {view?.target ?? '-'}</span>
-          <span className="pill">Remaining: {remaining ?? '-'}</span>
-          <span className="pill">Visits: {turns.length}</span>
-          <span className="pill">Darts used: {turns.reduce((sum, t) => sum + t.dartsThrown, 0)}</span>
-        </div>
+          {remaining === 0 ? <div className="turnBanner" role="status">{busy ? 'Submitting result…' : submitted ? 'Result submitted' : 'Result not submitted'}</div> : null}
+        </section>
+        {remaining !== 0 ? <fieldset className="card turnEntry" disabled={busy || remaining == null || !view}>
+          <legend className="srOnly">Enter visit</legend>
+          <div className="entryDisplay"><span className="entryTitle">Enter visit</span><output className="entryScore">{darts.reduce((sum, dart) => sum + dartPoints(dart), 0)}</output></div>
+          <DartKeypad darts={darts} onChange={setDarts} revision={revision} />
+          <button className="btn btnPrimary entrySubmit" onClick={() => void addTurn()}>Submit visit</button>
+        </fieldset> : null}
       </div>
 
-      <div className="card" style={{ padding: 16 }}>
-        <div style={{ fontSize: 16, marginBottom: 8 }}>Play</div>
-        <div className="col" style={{ gap: 10 }}>
-          <PerDartEditor darts={darts} onChange={(next) => setDarts(toEditorDarts(next))} />
-        </div>
-        <div className="row" style={{ flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
-          <button className="btn btnPrimary" onClick={() => void addTurn()} disabled={busy || remaining === 0 || view == null}>
-            Add 3-dart turn
-          </button>
-          <button className="btn" onClick={resetRun} disabled={busy || view == null}>
-            Reset run
-          </button>
-          <button className="btn" onClick={() => void refresh()} disabled={busy || view == null}>
-            Refresh boards
-          </button>
-        </div>
-        {remaining === 0 ? <div className="pill" style={{ marginTop: 8, color: 'var(--good)' }}>Checkout complete. Submitted.</div> : null}
-      </div>
-
-      <div className="card" style={{ padding: 16 }}>
-        <div style={{ fontSize: 16, marginBottom: 8 }}>Run log</div>
+      <ScoringMenu>
+        <ScoringMenuSection title="Run settings">
+          <div className="row">
+            <button className="btn" onClick={resetRun} disabled={busy || view == null}>Reset run</button>
+            <button className="btn" onClick={() => void refresh()} disabled={busy || view == null}>Refresh leaderboards</button>
+            {remaining === 0 && !submitted ? <button className="btn btnPrimary" disabled={busy} onClick={() => void submitResult(turns.reduce((sum, t) => sum + t.dartsThrown, 0))}>Retry result</button> : null}
+          </div>
+        </ScoringMenuSection>
+        <ScoringMenuSection title="Visit history" hint={`${turns.length} this run`}>
         <div className="col">
           {turns.length < 1 ? <span className="pill">No visits yet</span> : null}
           {turns.map((t) => (
-            <div key={t.visit} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <div key={t.visit} className="row">
               <span className="pill">Visit {t.visit}</span>
               <span className="pill">Darts: {t.darts.map((d) => dartToLabel(d)).join(', ')}</span>
               <span className="pill">Entered: {t.entered}</span>
               <span className="pill">Applied: {t.applied}</span>
               <span className="pill">Thrown: {t.dartsThrown}</span>
               {t.checkedOutOnDart ? <span className="pill">Checkout dart: {t.checkedOutOnDart}</span> : null}
-              <span className="pill">{t.bust ? 'Bust' : 'Valid'}</span>
+              {t.bust ? <span className="pill">Bust</span> : null}
               <span className="pill">Remaining: {t.remainingAfter}</span>
             </div>
           ))}
         </div>
-      </div>
+        </ScoringMenuSection>
 
-      <div className="grid2">
+      <ScoringMenuSection title="Leaderboards">
+      <div className="col">
         <div className="card" style={{ padding: 16 }}>
           <div style={{ fontSize: 16, marginBottom: 8 }}>Day leaderboard (Top 10)</div>
           <div className="col">
@@ -227,9 +222,11 @@ export default function DailyCheckoutGamePage() {
           </div>
         </div>
       </div>
+      </ScoringMenuSection>
+      </ScoringMenu>
 
-      {error ? <div className="toast">{error}</div> : null}
-    </div>
+      {error ? <div className="toast" role="alert">{error}</div> : null}
+    </main>
   )
 }
 
@@ -300,215 +297,6 @@ function toEditorDarts(input: Dart[]): Dart[] {
   const out = Array.isArray(input) ? input.map((d) => ({ segment: d.segment, multiplier: d.multiplier })) : []
   while (out.length < 3) out.push({ segment: 0, multiplier: 0 })
   return out.slice(0, 3)
-}
-
-function kindFromDart(d: Dart): DartKind {
-  if (d.multiplier === 0) return 'MISS'
-  if (d.segment === 25 && d.multiplier === 1) return 'SB'
-  if (d.segment === 25 && d.multiplier === 2) return 'DB'
-  if (d.multiplier === 3) return 'T'
-  if (d.multiplier === 2) return 'D'
-  return 'S'
-}
-
-function dartFrom(kind: DartKind, segment: number): Dart {
-  if (kind === 'MISS') return { segment: 0, multiplier: 0 }
-  if (kind === 'SB') return { segment: 25, multiplier: 1 }
-  if (kind === 'DB') return { segment: 25, multiplier: 2 }
-  const seg = Math.max(1, Math.min(20, Math.floor(segment)))
-  if (kind === 'T') return { segment: seg, multiplier: 3 }
-  if (kind === 'D') return { segment: seg, multiplier: 2 }
-  return { segment: seg, multiplier: 1 }
-}
-
-function PerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
-  const isMobile = useMediaQuery('(max-width: 520px)')
-  if (isMobile) return <MobilePerDartEditor darts={darts} onChange={onChange} />
-  return <PcPerDartEditor darts={darts} onChange={onChange} />
-}
-
-function PcPerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
-  const [segText, setSegText] = useState<string[]>(() =>
-    [0, 1, 2].map((i) => String((darts[i]?.segment ?? 20) === 25 ? 20 : darts[i]?.segment ?? 20)),
-  )
-
-  useEffect(() => {
-    setSegText([0, 1, 2].map((i) => String((darts[i]?.segment ?? 20) === 25 ? 20 : darts[i]?.segment ?? 20)))
-  }, [darts])
-
-  function setDart(i: number, next: Dart) {
-    const out = darts.map((d, idx) => (idx === i ? next : d))
-    onChange(out)
-  }
-
-  function setKind(i: number, kind: DartKind) {
-    const currentSeg = Number(segText[i] ?? '20')
-    const seg = Number.isFinite(currentSeg) ? currentSeg : 20
-    setDart(i, dartFrom(kind, seg))
-  }
-
-  function setSegment(i: number, raw: string) {
-    const v = raw.replace(/[^0-9]/g, '').slice(0, 2)
-    setSegText((s) => s.map((x, idx) => (idx === i ? v : x)))
-    const n = v === '' ? NaN : Number(v)
-    if (!Number.isFinite(n)) return
-    const k = kindFromDart(darts[i] ?? { segment: 20, multiplier: 1 })
-    if (k === 'MISS' || k === 'SB' || k === 'DB') return
-    setDart(i, dartFrom(k, n))
-  }
-
-  return (
-    <div className="col">
-      <div className="help">Enter each dart as Single/Double/Triple + segment 1-20, or SB (25) / DB (50) / Miss.</div>
-      <div className="grid2">
-        {[0, 1, 2].map((i) => {
-          const d = darts[i] ?? { segment: 20, multiplier: 1 }
-          const kind = kindFromDart(d)
-          const needsSeg = kind === 'S' || kind === 'D' || kind === 'T'
-          return (
-            <div key={i} className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
-              <div className="help" style={{ marginBottom: 8 }}>Dart {i + 1}</div>
-              <div className="col">
-                <select className="select" value={kind} onChange={(e) => setKind(i, e.target.value as DartKind)}>
-                  <option value="MISS">Miss</option>
-                  <option value="S">Single</option>
-                  <option value="D">Double</option>
-                  <option value="T">Triple</option>
-                  <option value="SB">Single bull (25)</option>
-                  <option value="DB">Bullseye (50)</option>
-                </select>
-                <input
-                  className="input"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="1-20"
-                  disabled={!needsSeg}
-                  value={needsSeg ? segText[i] ?? '' : ''}
-                  onChange={(e) => setSegment(i, e.target.value)}
-                />
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
-  const [active, setActive] = useState<0 | 1 | 2>(0)
-  const [panel, setPanel] = useState<'KIND' | 'SEG'>('KIND')
-  const current = darts[active] ?? { segment: 20, multiplier: 1 }
-  const kind = kindFromDart(current)
-  const needsSeg = kind === 'S' || kind === 'D' || kind === 'T'
-
-  useEffect(() => {
-    const allMisses = darts.every((d) => d.multiplier === 0)
-    if (allMisses) {
-      setActive(0)
-      setPanel('KIND')
-    }
-  }, [darts])
-
-  function setDart(i: 0 | 1 | 2, next: Dart) {
-    const out = darts.map((d, idx) => (idx === i ? next : d))
-    onChange(out)
-  }
-
-  function setKind(nextKind: DartKind) {
-    const seg = current.segment === 25 ? 20 : current.segment || 20
-    setDart(active, dartFrom(nextKind, seg))
-    if (nextKind === 'S' || nextKind === 'D' || nextKind === 'T') setPanel('SEG')
-    else setPanel('KIND')
-  }
-
-  function setSegment(seg: number) {
-    setDart(active, dartFrom(kind === 'S' || kind === 'D' || kind === 'T' ? kind : 'S', seg))
-  }
-
-  return (
-    <div className="col">
-      <div className="help">Tap each dart (no typing).</div>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="pill">Dart {active + 1} · {kind}{needsSeg ? ` ${current.segment}` : ''}</span>
-        <div className="row">
-          {[0, 1, 2].map((i) => (
-            <button key={i} className={active === i ? 'btn btnPrimary' : 'btn'} onClick={() => setActive(i as 0 | 1 | 2)}>
-              {i + 1}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className={panel === 'KIND' ? 'btn btnPrimary' : 'btn'} onClick={() => setPanel('KIND')}>
-          Type
-        </button>
-        <button className={panel === 'SEG' ? 'btn btnPrimary' : 'btn'} onClick={() => setPanel('SEG')} disabled={!needsSeg}>
-          Segment
-        </button>
-        <span className="pill">{needsSeg ? '1-20' : kind === 'SB' ? '25' : kind === 'DB' ? '50' : ''}</span>
-      </div>
-      {panel === 'KIND' ? (
-        <div className="row" style={{ flexWrap: 'wrap' }}>
-          <button className={kind === 'MISS' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('MISS')}>Miss</button>
-          <button className={kind === 'S' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('S')}>Single</button>
-          <button className={kind === 'D' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('D')}>Double</button>
-          <button className={kind === 'T' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('T')}>Triple</button>
-          <button className={kind === 'SB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('SB')}>SB</button>
-          <button className={kind === 'DB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('DB')}>DB</button>
-        </div>
-      ) : (
-        <div className="col" style={{ gap: 10 }}>
-          <div className="segGrid">
-            {Array.from({ length: 20 }, (_, idx) => idx + 1).map((n) => (
-              <button key={n} className={n === current.segment ? 'key keyPrimary' : 'key'} onClick={() => setSegment(n)}>
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <button
-          className="btn"
-          onClick={() => {
-            setActive((a) => (a === 0 ? 0 : ((a - 1) as 0 | 1 | 2)))
-            setPanel('KIND')
-          }}
-        >
-          Back
-        </button>
-        <button
-          className="btn btnPrimary"
-          onClick={() => {
-            setActive((a) => (a === 2 ? 2 : ((a + 1) as 0 | 1 | 2)))
-            setPanel('KIND')
-          }}
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false)
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const m = window.matchMedia(query)
-    const onChange = () => setMatches(Boolean(m.matches))
-    onChange()
-    if (typeof m.addEventListener === 'function') m.addEventListener('change', onChange)
-    else m.addListener(onChange)
-    return () => {
-      if (typeof m.removeEventListener === 'function') m.removeEventListener('change', onChange)
-      else m.removeListener(onChange)
-    }
-  }, [query])
-
-  return matches
 }
 
 async function loadView(

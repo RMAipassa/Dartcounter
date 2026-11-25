@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
 import Icon from './Icon'
+import { ScoringMenuContext } from './ScoringScreen'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -30,13 +31,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [incomingRequestCount, setIncomingRequestCount] = useState(0)
   const [uiDensity, setUiDensity] = useState<'spacious' | 'compact'>('spacious')
   const [hostSecret, setHostSecret] = useState<string | null>(null)
+  const [scoringMenuTarget, setScoringMenuTarget] = useState<HTMLDivElement | null>(null)
   const menuRef = useRef<HTMLDialogElement>(null)
   const wakeLockRef = useRef<any>(null)
   const roomRoute = pathname.match(/^\/room\/([^/]+)\/(lobby|game)\/?$/i)
   const roomCode = roomRoute?.[1]?.toUpperCase() ?? null
   const inGame = roomRoute?.[2] === 'game'
   const inDaily = /^\/daily-checkout\/.+/.test(pathname)
-  const showBottomNav = !inGame && !inDaily
+  const inScoring = inGame || inDaily
+  const showBottomNav = !inScoring
 
   useEffect(() => {
     setServerUrl(getServerUrl())
@@ -67,18 +70,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [open])
 
   useEffect(() => {
-    function onOpenMenu() {
-      setOpen(true)
-    }
     function onAuthExpired() {
       setIncomingRequestCount(0)
       setToast('Session expired. Please sign in again.')
       setTimeout(() => setToast(null), 2600)
     }
-    window.addEventListener('dc:openMenu', onOpenMenu as any)
     window.addEventListener('dc:authExpired', onAuthExpired as any)
     return () => {
-      window.removeEventListener('dc:openMenu', onOpenMenu as any)
       window.removeEventListener('dc:authExpired', onAuthExpired as any)
     }
   }, [])
@@ -357,8 +355,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className={`${inGame ? 'gameShell' : 'appShell'}${showBottomNav ? ' withDock' : ''}`}>
-      <header className="topbar">
+    <ScoringMenuContext.Provider value={{ target: scoringMenuTarget, open, show: () => setOpen(true) }}>
+    <div className={`${inScoring ? 'gameShell' : 'appShell'}${showBottomNav ? ' withDock' : ''}`}>
+      {!inScoring ? <header className="topbar">
         <div className="topbarContent">
           <Link className="brand" href="/"><Image className="brandMark" src="/favicon.svg?v=2" alt="" width={36} height={36} unoptimized />Dartcounter</Link>
           <nav className="topbarNav" aria-label="Main navigation">{navLinks(false)}</nav>
@@ -367,16 +366,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {incomingRequestCount > 0 ? <span className="navBadge">{incomingRequestCount}</span> : null}
           </button>
         </div>
-      </header>
+      </header> : null}
 
       <dialog className="menuPanel" ref={menuRef} aria-labelledby="menu-heading" onClose={() => setOpen(false)} onClick={(event) => {
         if (event.target === event.currentTarget) setOpen(false)
       }}>
         <div className="menuContent col">
           <div className="row spread">
-            <h2 id="menu-heading" className="sectionTitle">Menu</h2>
+            <h2 id="menu-heading" className="sectionTitle">{inScoring ? 'Game menu' : 'Menu'}</h2>
             <button className="btn iconButton" aria-label="Close menu" onClick={() => setOpen(false)}><Icon name="close" /></button>
           </div>
+          {inScoring ? <div className="col" ref={setScoringMenuTarget} /> : null}
           {roomCode ? (
             <div className="col">
               <div className="row spread"><span className="pill">Room {roomCode}</span><button className="btn" onClick={() => { void copyRoomCode(); setOpen(false) }}>Copy code</button></div>
@@ -386,6 +386,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           ) : null}
+          {inScoring ? <details className="card scoringMenuSection"><summary>App options</summary><div className="col scoringMenuBody">{appOptions()}</div></details> : appOptions()}
+        </div>
+      </dialog>
+
+      <div className="container">{children}</div>
+      {showBottomNav ? <nav className="mobileDock" aria-label="Main navigation">{navLinks(true)}</nav> : null}
+      {toast ? <div className="toast" role="status">{toast}</div> : null}
+    </div>
+    </ScoringMenuContext.Provider>
+  )
+
+  function appOptions() {
+    return <>
           <nav className="menuLinks" aria-label="Menu navigation">{navLinks(false, true)}</nav>
           <div className="row spread">
             <span className="help">Layout density</span>
@@ -399,14 +412,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <button className="btn" onClick={() => { setOpen(false); void install() }}>Install app</button>
             <button className="btn" onClick={() => { setOpen(false); void toggleFullscreen() }}>Fullscreen</button>
           </div>
-        </div>
-      </dialog>
-
-      <div className="container">{children}</div>
-      {showBottomNav ? <nav className="mobileDock" aria-label="Main navigation">{navLinks(true)}</nav> : null}
-      {toast ? <div className="toast" role="status">{toast}</div> : null}
-    </div>
-  )
+    </>
+  }
 
   function navLinks(dock: boolean, menu = false) {
     return destinations.map(({ href, icon, label }) => {

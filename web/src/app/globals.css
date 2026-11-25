@@ -56,7 +56,7 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .grid4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .gridAuto { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
 .card { min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
-.btn, .key, .padKey, .multTab, .mobileIconBtn {
+.btn, .padKey, .multTab {
   min-height: 44px;
   display: inline-flex;
   align-items: center;
@@ -74,14 +74,14 @@ input[type='checkbox'] { accent-color: var(--cta); }
   cursor: pointer;
   transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
-.btn svg, .mobileIconBtn svg { width: 19px; height: 19px; flex: none; }
+.btn svg { width: 19px; height: 19px; flex: none; }
 @media (hover: hover) {
-  :is(.btn, .key, .padKey, .multTab, .mobileIconBtn):not(:disabled):hover { background: #2b352b; border-color: #586658; }
+  :is(.btn, .padKey, .multTab):not(:disabled):hover { background: #2b352b; border-color: #586658; }
   .btnPrimary:not(:disabled):hover { background: var(--cta-hover); border-color: var(--cta-hover); }
 }
 .btnPrimary { background: var(--cta); border-color: var(--cta); color: var(--on-cta); }
-.btn[aria-pressed='true'], .multTabActive, .keyPrimary { color: var(--text); background: var(--active-bg); border-color: var(--active-border); }
-.iconButton, .mobileIconBtn { width: 44px; padding: 0; }
+.btn[aria-pressed='true'] { color: var(--text); background: var(--active-bg); border-color: var(--active-border); }
+.iconButton { width: 44px; padding: 0; }
 .input, .select { width: 100%; min-width: 0; min-height: 46px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg1); color: var(--text); padding: 10px 12px; }
 .input::placeholder { color: var(--muted); }
 .input[aria-invalid='true'] { border-color: var(--bad); }
@@ -110,7 +110,7 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .menuPanel::backdrop { background: #080c08c7; }
 .menuContent { padding: clamp(14px, 4vw, 24px); gap: 16px; }
 .menuLinks { flex-wrap: wrap; padding-block: 8px; border-block: 1px solid var(--border); }
-.mobileDock, .mobileOnly { display: none; }
+.mobileDock { display: none; }
 
 /* Home */
 .homePage { display: grid; gap: clamp(26px, 4vw, 48px); }
@@ -157,7 +157,6 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .setupFooter { padding-top: 14px; border-top: 1px solid var(--border); }
 .setupCode { letter-spacing: .16em; font-weight: 760; }
 .formError { margin: 0; color: var(--bad); font-size: 14px; }
-.gameGrid { align-items: start; }
 .lobbyStartPanel { display: grid; grid-template-columns: minmax(0, 280px) auto; justify-content: start; align-items: end; gap: var(--gap); padding: 12px 16px; }
 .lobbyStartPanel .btn { min-height: 46px; }
 .lobbyEmpty { padding: clamp(20px, 4vw, 38px); }
@@ -212,60 +211,88 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .lobbyFormat strong { color: var(--text); }
 
 /* Scoreboard and scoring */
-.gamePage { gap: 16px; }
-.gameGrid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(330px, 1fr); gap: clamp(12px, 2vw, 22px); }
-.scoreboard { display: grid; gap: 12px; }
-.gamePlayers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
-.gamePlayersSolo { grid-template-columns: minmax(0, 1fr); }
-.playerCard, .mobileScorePane, .mobileScoreMini { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); padding: clamp(12px, 2vw, 20px); background: var(--panel); }
-.playerCardUp, .mobileScorePaneActive { background: var(--active-bg); border-color: var(--active-border); }
-.playerCardUp .playerBigNum, .mobileScorePaneActive .mobileScorePaneBig { color: var(--good); }
-.scoreName { overflow-wrap: anywhere; }
-.scoreTurn { color: var(--good); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
-.scoreMeta { color: var(--muted); font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
-.scoreCardBody { margin-top: 14px; }
-.playerBigNum, .mobileScorePaneBig { font-weight: 840; font-size: clamp(50px, 7vw, 102px); line-height: 1; letter-spacing: -.065em; }
-.turnEntry { display: grid; min-inline-size: 0; gap: 10px; margin: 0; padding: 16px; }
-.visitScoreInput { height: 80px; font-size: 38px; font-weight: 800; }
-.invalidScore { color: var(--bad); }
+body:has(.gameShell) { background: #0b0b0d; }
+.gameShell {
+  --bg0: #0b0b0d;
+  --bg1: #111113;
+  --panel: #19191c;
+  --panel2: #242427;
+  --border: #444449;
+  --text: #fff;
+  --muted: #bfbfc4;
+  --accent: #fff;
+  --good: #fff;
+  --bad: #ff8b91;
+  --cta: #c9252c;
+  --cta-hover: #d32c34;
+  --on-cta: #fff;
+  --active-bg: #422024;
+  --active-border: #e04c54;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+.gameShell > .container { display: flex; flex: 1; width: min(100%, 1600px); padding: clamp(8px, 2vw, 26px); }
+.gamePage { display: flex; flex: 1; flex-direction: column; gap: clamp(8px, 1.4vw, 18px); min-width: 0; }
+.scoringHeader { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
+.scoringBack { width: 44px; padding: 0; }
+.scoringBack svg { transform: rotate(180deg); }
+.scoringHeading { min-width: 0; }
+.scoringHeading h1 { margin: 0; font-size: clamp(17px, 2.5vw, 26px); line-height: 1.1; letter-spacing: -.025em; }
+.scoringHeading p { margin: 3px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.gameGrid { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr); gap: clamp(8px, 1.8vw, 26px); align-items: stretch; }
+.gameGrid[data-entry='true'] { grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); }
+.scoreboard { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.scoreboardLabel { display: flex; justify-content: space-between; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 760; letter-spacing: .1em; text-transform: uppercase; }
+.gamePlayers { display: grid; flex: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(6px, 1vw, 14px); }
+.gamePlayers[data-solo='true'] { grid-template-columns: minmax(0, 1fr); }
+.playerCard { display: grid; align-content: stretch; grid-template-rows: auto 1fr auto; gap: 8px; min-width: 0; margin: 0; padding: clamp(10px, 2vw, 26px); border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.playerCard[data-current='true'] { color: #111113; background: #fafafa; border-color: #fafafa; border-top: 5px solid var(--cta); }
+.scoreCardHeader { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 5px 8px; }
+.scoreName { font-size: clamp(14px, 2vw, 26px); font-weight: 800; overflow-wrap: anywhere; }
+.scoreTurn { background: var(--cta); color: var(--on-cta); border-radius: 5px; padding: 3px 5px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.scoreMeta { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: 12px; font-weight: 680; overflow-wrap: anywhere; }
+.playerCard[data-current='true'] .scoreMeta { color: #414146; }
+.playerBigNum { align-self: center; font-weight: 850; font-size: clamp(48px, min(8vw, 20dvh), 140px); line-height: .9; letter-spacing: -.055em; }
+.gamePlayers[data-solo='true'] .playerBigNum { font-size: clamp(65px, min(14vw, 29dvh), 214px); }
+.gamePlayers[data-many='true'] .playerBigNum { font-size: clamp(40px, min(7vw, 13dvh), 100px); }
+.turnEntry { display: flex; flex-direction: column; min-inline-size: 0; gap: clamp(6px, 1.2vw, 14px); margin: 0; padding: clamp(8px, 1.7vw, 22px); }
+.turnEntry[aria-busy='true'] button:not(.entrySubmit) { pointer-events: none; }
 .resultBanner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; padding: clamp(12px, 3vw, 22px); border-color: var(--active-border); background: var(--active-bg); }
-.resultBanner .eyebrow { color: var(--good); }
-.gameDetails > summary { cursor: pointer; min-height: 47px; padding: 13px 16px; font-weight: 720; }
-.gameDetails > summary span { color: var(--muted); font-size: 12px; font-weight: 600; margin-left: 8px; }
-.gameDetailsBody { padding: 4px 16px 16px; }
-.keypad, .padGrid, .segGrid, .multTabs, .dartSlots, .dartActions { display: grid; gap: 6px; }
-.keypad, .padGrid, .multTabs, .dartSlots { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.resultBanner .eyebrow { color: var(--bad); }
+.scoringMenuSection > summary { cursor: pointer; min-height: 48px; padding: 12px 14px; font-weight: 760; }
+.scoringMenuSection > summary small { margin-inline-start: 8px; color: var(--muted); font-weight: 550; }
+.scoringMenuBody { padding: 2px 12px 12px; }
+.gameShell .menuPanel { width: min(560px, calc(100% - 24px)); }
+.gameShell .menuPanel::backdrop { background: #000b; }
+@media (hover: hover) {
+  .gameShell :is(.btn, .padKey, .multTab):not(:disabled):hover { background: #39393f; border-color: #77777e; }
+  .gameShell .btnPrimary:not(:disabled):hover { background: var(--cta-hover); border-color: var(--cta-hover); }
+}
+.padGrid, .segGrid, .multTabs, .dartSlots, .dartActions { display: grid; gap: 6px; }
+.padGrid, .multTabs, .dartSlots { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .segGrid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .dartActions { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.key { font-size: 17px; }
-.keyWide { grid-column: span 2; }
-.keyDanger { color: var(--bad); }
-.mobileGame, .mobileScoreOthers { display: grid; gap: 8px; }
-.mobileGameTop { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
-.mobileHeaderTitle { margin: 0; text-align: center; color: var(--muted); font-size: 12px; font-weight: 780; letter-spacing: .07em; }
-.mobileScoreDuo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.mobileScorePaneBig { margin-block: 4px; }
-.mobileScoreMainRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; margin-top: 8px; }
-.mobileScoreMini { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; border-radius: 9px; }
-.mobileScoreMiniName { font-size: 12px; overflow-wrap: anywhere; }
-.mobileScoreMiniRem { font-weight: 800; }
-.turnBanner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px 10px; padding: 8px 12px; background: var(--panel2); border-radius: 9px; color: var(--text); font-size: 12px; font-weight: 780; }
-.turnBanner[data-active='true'] { background: var(--active-bg); color: var(--good); }
-.mobileTurnEntry { padding: 8px; gap: 7px; }
-.entryBar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; }
+.padGrid, .dartKeypad, .dartKeypad .segGrid { flex: 1; }
+.padGrid, .dartKeypad .segGrid { grid-auto-rows: minmax(44px, 1fr); }
+.dartKeypad { display: flex; flex-direction: column; gap: 6px; }
+.gameShell .multTab[aria-pressed='true'] { background: var(--active-bg); border-color: var(--active-border); }
+.turnBanner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 30px; padding: 6px 10px; background: var(--panel2); border-left: 3px solid var(--border); border-radius: 7px; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.turnBanner[data-active='true'] { background: var(--active-bg); border-color: var(--active-border); }
+.entryBar { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 5px; }
+.entryTitle { font-weight: 800; }
 .entryBar .row { gap: 4px; }
-.entryBar .btn, .dartSlots .btn, .dartActions .btn, .multTab { padding-inline: 6px; font-size: 12px; }
-.entryDisplay { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 4px 10px; background: var(--bg1); border: 1px solid var(--border); border-radius: 9px; }
-.entryHint { font-size: 12px; color: var(--muted); }
+.dartSlots .btn, .dartActions .btn, .multTab { padding-inline: 3px; font-size: 12px; }
+.entryDisplay { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; padding: 4px 10px; background: var(--bg0); border: 1px solid var(--border); border-radius: 8px; }
+.entryHint { font-size: 13px; color: var(--muted); }
 .entryHint.invalidScore { color: var(--bad); }
-.entryScore { font-size: 25px; font-weight: 820; }
-.entrySubmit { min-height: 48px; }
-.turnEntry .btnPrimary { background: var(--good); border-color: var(--good); color: var(--on-good); }
-@media (hover: hover) {
-  .turnEntry .btnPrimary:not(:disabled):hover { background: #a0d798; border-color: #a0d798; }
-}
-.padKey { font-size: 19px; }
+.entryScore { width: 6ch; padding: 1px 4px; border: 0; border-radius: 4px; text-align: right; background: transparent; color: var(--text); font-size: clamp(26px, 4vw, 46px); font-weight: 830; }
+.entryScore::placeholder { color: var(--muted); opacity: 1; }
+.entrySubmit { min-height: clamp(48px, 7dvh, 72px); font-size: clamp(15px, 2vw, 21px); }
+.padKey { padding: 4px; font-size: clamp(20px, 2.4vw, 32px); }
 .padKeyAlt { font-size: 13px; color: var(--muted); }
+.gameShell .toast { background: var(--panel2); border-color: var(--border); }
 
 /* Horizontally scrollable tournament bracket */
 .tourneyBracketBoard { display: flex; gap: 34px; max-width: 100%; overflow-x: auto; padding: 2px 6px 12px; }
@@ -291,7 +318,11 @@ input[type='checkbox'] { accent-color: var(--cta); }
   .mobileDockItem[aria-current='page'] { color: var(--good); background: var(--active-bg); }
   .grid3, .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sectionTabs { top: calc(61px + env(safe-area-inset-top)); }
-  .gameGrid { grid-template-columns: minmax(0, 1fr); }
+  .gameGrid[data-entry='true'] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(min-content, 1fr) minmax(min-content, 2fr); }
+  .gameGrid[data-entry='true'] .gamePlayers[data-many='true'] { grid-template-columns: none; grid-auto-columns: minmax(140px, 45%); grid-auto-flow: column; overflow-x: auto; }
+  .playerBigNum { font-size: clamp(45px, 15vw, 90px); }
+  .gamePlayers[data-solo='true'] .playerBigNum { font-size: clamp(58px, 18vw, 110px); }
+  .gameGrid[data-entry='true'] .gamePlayers[data-many='true'] .playerBigNum { font-size: clamp(45px, 13vw, 85px); }
 }
 
 @media (max-width: 620px) {
@@ -331,17 +362,27 @@ input[type='checkbox'] { accent-color: var(--cta); }
 }
 
 @media (max-width: 520px) {
-  .mobileOnly { display: block; }
-  .desktopOnly, .gameShell > .topbar { display: none; }
-  .gameShell .container { padding: 7px 10px 20px; }
-  .gamePage { gap: 8px; }
-  .mobileScorePane, .mobileGame .playerCard { padding: 10px; }
-  .mobileScorePane .row, .mobileGame .playerCard .row { gap: 4px; }
-  .mobileScorePane .scoreName { font-size: 14px; }
-  .mobileScorePaneBig { font-size: clamp(42px, 14vw, 65px); }
-  .mobileGame .playerBigNum { font-size: clamp(48px, 16vw, 71px); }
+  .scoringHeader { gap: 8px; }
+  .scoringMenuTrigger { padding-inline: 9px; }
+  .scoreboardLabel { display: none; }
+  .entryBar .btn { padding-inline: 8px; font-size: 12px; }
+  .gamePlayers:not([data-solo='true']) .scoreCardHeader { min-height: 40px; align-content: start; }
+}
+
+@media (max-width: 880px) and (max-height: 650px) {
+  .gameGrid[data-entry='true'] { grid-template-rows: auto minmax(min-content, 1fr); }
+  .gameGrid[data-entry='true'] .playerCard { padding: 7px 9px; gap: 4px; }
+  .gameGrid[data-entry='true'] .gamePlayers { flex: none; }
+  .turnEntry { gap: 5px; }
+  .padGrid { gap: 4px; }
+  .entryDisplay { min-height: 40px; padding-block: 1px; }
+}
+
+@media (max-width: 520px) and (max-height: 650px) {
+  .gameGrid[data-entry='true'] .gamePlayers:not([data-solo='true']) .scoreCardHeader { min-height: 20px; }
+  .gameGrid[data-entry='true'] .gamePlayers:not([data-solo='true']) .scoreTurn { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn, .key, .padKey, .multTab, .mobileIconBtn, .activityCard { transition: none; }
+  .btn, .padKey, .multTab, .activityCard { transition: none; }
 }

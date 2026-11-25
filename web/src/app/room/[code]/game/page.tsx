@@ -7,6 +7,8 @@ import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
 import type { Dart, MatchSnapshot, Player, PlayerStats, RoomSnapshot } from '@/lib/types'
 import { suggestCheckout, type OutRule } from '@/lib/checkout'
+import DartKeypad from '@/components/DartKeypad'
+import { ScoringHeader, ScoringMenu, ScoringMenuSection } from '@/components/ScoringScreen'
 
 type VoiceLang = 'EN' | 'NL' | 'DE'
 
@@ -16,6 +18,7 @@ export default function GamePage() {
   const serverUrl = useMemo(() => getServerUrl(), [])
   const [snap, setSnap] = useState<RoomSnapshot | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const scoreTrackRef = useRef<HTMLDivElement>(null)
 
   const [totalText, setTotalText] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -654,10 +657,18 @@ export default function GamePage() {
     }
   }
 
+  useEffect(() => {
+    const track = scoreTrackRef.current
+    const active = track?.querySelector('[data-current=true]')
+    if (!track || !active || track.scrollWidth <= track.clientWidth) return
+    const visible = track.getBoundingClientRect()
+    const card = active.getBoundingClientRect()
+    if (card.left < visible.left) track.scrollLeft += card.left - visible.left
+    else if (card.right > visible.right) track.scrollLeft += card.right - visible.right
+  }, [currentPlayer?.id, players.length])
+
   const scoringTools = (
-    <details className="card gameDetails">
-      <summary>Voice &amp; Autodarts <span>{autodarts?.status === 'CONNECTED' ? 'Board connected' : 'Manual scoring'}</span></summary>
-      <div className="gameDetailsBody">
+    <ScoringMenuSection title="Scoring settings" hint={autodarts?.status === 'CONNECTED' ? 'Board connected' : 'Voice & Autodarts'}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="row" style={{ flexWrap: 'wrap' }}>
             <span className="pill">Autodarts: {autodarts?.status ?? 'DISCONNECTED'}</span>
@@ -699,7 +710,7 @@ export default function GamePage() {
               <span className="pill">Capturing...</span>
             )}
             {autodartsLoadedForReview ? (
-              <span className="pill" style={{ color: autodartsReviewEdited ? '#ffd88a' : 'var(--good)' }}>
+               <span className="pill" style={{ color: autodartsReviewEdited ? 'var(--bad)' : 'var(--text)' }}>
                 {autodartsReviewEdited ? 'Edited before submit' : 'Unchanged'}
               </span>
             ) : null}
@@ -727,18 +738,14 @@ export default function GamePage() {
             </div>
           </div>
         ) : null}
-      </div>
-    </details>
+    </ScoringMenuSection>
   )
 
   return (
-    <main className="col gamePage">
-      <div className="desktopOnly">
-        <div className="row spread">
-          <div><span className="eyebrow">{isPractice ? 'Solo training' : `Room ${code}`}</span><h1 className="title">{isPractice ? 'Practice' : 'Scoreboard'}</h1></div>
-          {settingsSummary ? <span className="pill">{settingsSummary}</span> : null}
-        </div>
-      </div>
+    <main className="gamePage">
+      <ScoringHeader title={isPractice ? 'Practice' : 'Scoreboard'} detail={settingsSummary ?? `Room ${code}`}
+        back={isPractice ? '/create?mode=practice' : finished ? `/room/${code}/lobby` : '/'}
+        backLabel={isPractice ? 'Back to practice setup' : finished ? 'Back to lobby' : 'Back to home'} />
       {finished ? (
         <section className="card resultBanner" aria-label="Match result">
           <div><span className="eyebrow">Final result</span><h2 className="sectionTitle" role="status">{isPractice ? 'Practice complete' : winner ? `${winner.name} wins` : 'Match complete'}</h2></div>
@@ -747,91 +754,33 @@ export default function GamePage() {
           </Link>
         </section>
       ) : null}
-      <div className="mobileOnly">
-        <MobileGame
-          code={code}
-          match={match}
-          leg={leg}
-          players={players}
-          currentPlayer={currentPlayer}
-          statsByPlayerId={statsByPlayerId}
-          checkoutSuggestion={checkoutSuggestion}
-          canSubmit={canSubmitNow}
-          submitting={submitting}
-          entryRevision={entryRevision}
-          autodartsControllingTurn={autodartsControllingTurn}
-          autodartsTurnReady={autodartsTurnReady}
-          autodartsBaselineDarts={autodartsLoadedForReview?.darts ?? null}
-          perDartOnly={perDartOnly}
-          onSubmit={() => void submitTurn()}
-          entryMode={entryMode}
-          setEntryMode={setEntryMode}
-          totalText={totalText}
-          setTotalText={setTotalText}
-          darts={darts}
-          setDarts={setDarts}
-          onVoiceInput={() => void toggleVoiceInput()}
-          voiceAlwaysOn={voiceAlwaysOn}
-          setVoiceAlwaysOn={setVoiceAlwaysOn}
-          voiceSupported={voiceSupported}
-          voiceListening={voiceListening}
-          finished={finished}
-        />
-      </div>
-
-      <div className="desktopOnly">
-        <div className="gameGrid">
-          <div className="scoreboard">
-            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h2 className="sectionTitle">{finished ? 'Final scores' : 'Live scores'}</h2>
-              </div>
-              {match ? (
-                <span className="pill">{match.settings.gameType === 'PRACTICE' ? 'Practice session' : `${match.settings.setsEnabled ? `Set ${match.currentSetNumber} · ` : ''}Leg ${match.currentLeg.legNumber}`}</span>
-              ) : null}
-            </div>
-
-            <div className={`gamePlayers${players.length === 1 ? ' gamePlayersSolo' : ''}`}>
-              {players.map((p) => (
-                <PlayerPanel
-                  key={p.id}
-                  player={p}
-                   isCurrent={!finished && p.id === currentPlayer?.id}
-                  leg={leg}
-                  settings={settings}
-                  match={match}
-                  stats={statsByPlayerId[p.id]}
-                  autodartsControllingTurn={autodartsControllingTurn && p.id === currentPlayer?.id}
-                />
-              ))}
-            </div>
+      <div className="gameGrid" data-entry={!finished && (canSubmitNow || autodartsControllingTurn)}>
+        <section className="scoreboard" aria-label={finished ? 'Final scores' : 'Live scores'}>
+          <div className="scoreboardLabel">
+            <span>{finished ? 'Final scores' : isPractice ? 'Training score' : 'Live scores'}</span>
+            {match && !isPractice ? <span>{settings?.setsEnabled ? `Set ${match.currentSetNumber} · ` : ''}Leg {match.currentLeg.legNumber}</span> : null}
           </div>
-
-           {!finished ? <EnterTurnCard
-            currentPlayer={currentPlayer}
-            checkoutSuggestion={checkoutSuggestion}
-            entryMode={entryMode}
-            setEntryMode={setEntryMode}
-            darts={darts}
-            setDarts={setDarts}
-            totalText={totalText}
-            setTotalText={setTotalText}
-             submitTurn={() => void submitTurn()}
-            settings={settings}
-            finished={finished}
-             canSubmit={canSubmitNow}
-             submitting={submitting}
-            autodartsControllingTurn={autodartsControllingTurn}
-            autodartsTurnReady={autodartsTurnReady}
-             perDartOnly={perDartOnly}
-           /> : null}
-        </div>
+          <div ref={scoreTrackRef} className="gamePlayers" data-solo={players.length < 2} data-many={players.length > 2}>
+            {players.map((p) => <PlayerPanel key={p.id} player={p} isCurrent={!finished && p.id === currentPlayer?.id}
+              leg={leg} settings={settings} match={match} stats={statsByPlayerId[p.id]} />)}
+            {!players.length ? <p className="playerCard help">Waiting for the scoreboard…</p> : null}
+          </div>
+          {!finished ? <div className="turnBanner" data-active={canSubmitNow}>
+            <span>{autodartsControllingTurn ? autodartsTurnReady && canSubmitNow ? 'Review captured visit' : 'Autodarts scoring'
+              : canSubmitNow ? 'Your turn' : currentPlayer ? `${currentPlayer.name} to throw` : 'Waiting for match'}</span>
+            {checkoutSuggestion ? <span>Checkout: <strong>{checkoutSuggestion.labels.join(' · ')}</strong></span> : null}
+          </div> : null}
+        </section>
+        {!finished && (canSubmitNow || autodartsControllingTurn) ? <MatchTurnEntry
+          entryMode={entryMode} setEntryMode={setEntryMode} perDartOnly={perDartOnly}
+          totalText={totalText} setTotalText={setTotalText} darts={darts} setDarts={setDarts}
+          revision={entryRevision} reviewDarts={autodartsLoadedForReview?.darts}
+          canSubmit={canSubmitNow} submitting={submitting} onSubmit={() => void submitTurn()} /> : null}
       </div>
 
+      <ScoringMenu>
       {scoringTools}
-      <details className="card gameDetails">
-        <summary>Visit history <span>{leg?.turns?.length ?? 0} {leg?.turns?.length === 1 ? 'visit' : 'visits'} this leg</span></summary>
-        <div className="gameDetailsBody">
+      <ScoringMenuSection title="Visit history" hint={`${leg?.turns?.length ?? 0} this leg`}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div className="help">Recent by default; switch to see the full leg history.</div>
@@ -854,12 +803,9 @@ export default function GamePage() {
             recentVisitsPerPlayer={6}
           />
         </div>
-        </div>
-      </details>
+      </ScoringMenuSection>
 
-      <details className="card gameDetails">
-        <summary>Player stats</summary>
-        <div className="gameDetailsBody">
+      <ScoringMenuSection title="Player stats">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div className="help">{isX01 ? 'Computed from turns (total mode assumes 3 darts per visit).' : 'Practice/Around modes: darts-thrown focused stats.'}</div>
@@ -895,224 +841,11 @@ export default function GamePage() {
             )
           })}
         </div>
-        </div>
-      </details>
+      </ScoringMenuSection>
+      </ScoringMenu>
 
       {toast ? <div className="toast" role="status">{toast}</div> : null}
     </main>
-  )
-}
-
-function MobileGame({
-  code,
-  match,
-  leg,
-  players,
-  currentPlayer,
-  statsByPlayerId,
-  checkoutSuggestion,
-  canSubmit,
-  submitting,
-  entryRevision,
-  onSubmit,
-  autodartsControllingTurn,
-  autodartsTurnReady,
-  autodartsBaselineDarts,
-  perDartOnly,
-  entryMode,
-  setEntryMode,
-  totalText,
-  setTotalText,
-  darts,
-  setDarts,
-  onVoiceInput,
-  voiceAlwaysOn,
-  setVoiceAlwaysOn,
-  voiceSupported,
-  voiceListening,
-  finished,
-}: {
-  code: string
-  match: MatchSnapshot | undefined
-  leg: MatchSnapshot['leg'] | undefined
-  players: Player[]
-  currentPlayer: Player | null
-  statsByPlayerId: Record<string, PlayerStats>
-  checkoutSuggestion: { labels: string[] } | null
-  canSubmit: boolean
-  submitting: boolean
-  entryRevision: number
-  onSubmit: () => void
-  autodartsControllingTurn: boolean
-  autodartsTurnReady: boolean
-  autodartsBaselineDarts: Dart[] | null
-  perDartOnly: boolean
-  entryMode: 'TOTAL' | 'PER_DART'
-  setEntryMode: (m: 'TOTAL' | 'PER_DART') => void
-  totalText: string
-  setTotalText: (t: string) => void
-  darts: Dart[]
-  setDarts: (d: Dart[]) => void
-  onVoiceInput: () => void
-  voiceAlwaysOn: boolean
-  setVoiceAlwaysOn: (v: boolean | ((prev: boolean) => boolean)) => void
-  voiceSupported: boolean
-  voiceListening: boolean
-  finished: boolean
-}) {
-  const p = currentPlayer
-  const playerViews = players.map((pl) => {
-    const stats = statsByPlayerId[pl.id]
-    const ps = leg?.players?.find((x) => x.playerId === pl.id)
-    return {
-      player: pl,
-      isCurrent: p?.id === pl.id,
-      stats,
-      remaining: ps?.remaining ?? null,
-      last: lastScoreForPlayer(leg?.turns ?? [], pl.id),
-      thrown: dartsThrownForPlayer(leg?.turns ?? [], pl.id),
-    }
-  })
-
-  const currentView = playerViews.find((v) => v.isCurrent) ?? playerViews[0]
-  const otherViews = playerViews.filter((v) => v.player.id !== currentView?.player.id)
-  const isTwoPlayer = playerViews.length === 2
-  const countUp = match?.settings?.gameType === 'AROUND' || (match?.settings?.gameType === 'PRACTICE' && match.settings.practiceMode !== 'X01')
-  const isPracticeMode = match?.settings?.gameType === 'PRACTICE'
-
-  return (
-    <div className="mobileGame">
-      <div className="mobileGameTop">
-        <button
-          className="mobileIconBtn"
-          onClick={() => {
-            if (window.history.length > 1) window.history.back()
-            else window.location.href = '/'
-          }}
-          aria-label="Back"
-        >
-          <svg className="mobileIcon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M15 18l-6-6 6-6"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        <h1 className="mobileHeaderTitle">
-          {!match ? 'SCOREBOARD' : isPracticeMode ? 'PRACTICE SESSION' : match.settings.setsEnabled ? `FIRST TO ${match.settings.setsToWin} SETS` : `FIRST TO ${match.settings.legsToWin} LEGS`}
-        </h1>
-        <button
-          className="mobileIconBtn"
-          onClick={() => window.dispatchEvent(new Event('dc:openMenu'))}
-          aria-label="Menu"
-          aria-haspopup="dialog"
-        >
-          <svg className="mobileIcon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M4 7h16M4 12h16M4 17h16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
-      </div>
-
-      {isTwoPlayer ? (
-        <div className="mobileScoreDuo">
-          {playerViews.map((v) => (
-            <div
-              key={v.player.id}
-              className={v.isCurrent ? 'mobileScorePane mobileScorePaneActive' : 'mobileScorePane'}
-            >
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                <strong className="scoreName">{v.player.name}</strong>
-                <span className="scoreMeta">{v.stats?.legsWon ?? 0} legs</span>
-              </div>
-              <div className="mobileScorePaneBig">{v.remaining ?? '-'}</div>
-              <div className="row scoreMeta">{countUp ? `Darts ${v.stats?.dartsThrown ?? 0}` : `Avg ${v.stats?.threeDartAvg ?? '–'}`} <span>Last {v.last ?? '–'}</span></div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className={canSubmit && !finished ? `playerCard playerCardUp` : 'playerCard'}>
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="row">
-              <span className="pill" style={{ color: 'var(--text)' }}>{currentView?.player.name ?? 'Waiting...'}</span>
-              {match && !isPracticeMode ? <span className="pill">{match.settings.setsEnabled ? `Set ${match.currentSetNumber} · ` : ''}Leg {match.currentLeg.legNumber}</span> : null}
-            </div>
-            {match ? (
-              <span className="pill">{match.settings.gameType === 'X01' ? `${match.settings.startScore} · ${match.settings.doubleIn ? 'DI' : 'SI'} · ${match.settings.doubleOut ? 'DO' : match.settings.masterOut ? 'MO' : 'SO'}` : match.settings.gameType === 'AROUND' ? 'Around the Board' : match.settings.practiceMode === 'X01' ? `X01 ${match.settings.startScore}` : match.settings.practiceMode.toLowerCase().replaceAll('_', ' ')}</span>
-            ) : null}
-          </div>
-
-          {!isPracticeMode || autodartsControllingTurn ? <div className="row" style={{ flexWrap: 'wrap', marginTop: 8 }}>
-            {isPracticeMode ? null : match?.settings?.setsEnabled ? <span className="pill">Sets won: {currentView?.stats?.setsWon ?? 0}</span> : null}
-            {isPracticeMode ? null : <span className="pill">Legs won: {currentView?.stats?.legsWon ?? 0}</span>}
-            {autodartsControllingTurn ? <span className="pill" style={{ color: 'var(--accent)' }}>Autodarts scoring</span> : null}
-          </div> : null}
-
-          <div className="mobileScoreMainRow">
-            <div className="playerBigNum">{currentView?.remaining ?? '-'}</div>
-            {otherViews.length > 0 ? (
-              <div className="mobileScoreOthers">
-                {otherViews.map((v) => (
-                   <div key={v.player.id} className="mobileScoreMini">
-                    <span className="mobileScoreMiniName">{v.player.name}</span>
-                    <span className="mobileScoreMiniRem">{v.remaining ?? '-'}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="col" style={{ alignItems: 'flex-end', gap: 8 }}>
-                {!countUp && !isPracticeMode ? <span className="pill">3-dart avg: {currentView?.stats?.threeDartAvg ?? '–'}</span> : null}
-                <span className="pill">Last score: {currentView?.last ?? '-'}</span>
-                <span className="pill">Darts thrown: {currentView?.thrown ?? 0}</span>
-              </div>
-            )}
-          </div>
-
-        </div>
-      )}
-
-      {!finished ? <div className="turnBanner" data-active={canSubmit}>
-        {finished
-          ? 'FINISHED'
-          : autodartsControllingTurn
-            ? autodartsTurnReady
-              ? 'REVIEW AND SUBMIT'
-              : 'AUTODARTS SCORING'
-            : canSubmit
-              ? "IT'S YOUR TURN"
-              : p ? `Waiting for ${p.name}` : 'Waiting for match'}
-        {checkoutSuggestion ? <span>Checkout: {checkoutSuggestion.labels.join(' · ')}</span> : null}
-      </div> : null}
-
-      {!finished && (canSubmit || autodartsControllingTurn) ? <MobileTurnEntry
-        key={entryRevision}
-        entryMode={entryMode}
-        setEntryMode={setEntryMode}
-        autodartsBaselineDarts={autodartsBaselineDarts}
-        perDartOnly={perDartOnly}
-        totalText={totalText}
-        setTotalText={setTotalText}
-        darts={darts}
-        setDarts={setDarts}
-        onVoiceInput={onVoiceInput}
-        voiceAlwaysOn={voiceAlwaysOn}
-        setVoiceAlwaysOn={setVoiceAlwaysOn}
-        voiceSupported={voiceSupported}
-        voiceListening={voiceListening}
-        canSubmit={canSubmit}
-        submitting={submitting}
-        onSubmit={onSubmit}
-      /> : null}
-    </div>
   )
 }
 
@@ -1135,92 +868,62 @@ function dartsThrownForPlayer(turns: MatchSnapshot['leg']['turns'], playerId: st
   return sum
 }
 
-function MobileTurnEntry({
+function MatchTurnEntry({
   entryMode,
   setEntryMode,
-  autodartsBaselineDarts,
+  revision,
+  reviewDarts,
   perDartOnly,
   totalText,
   setTotalText,
   darts,
   setDarts,
-  onVoiceInput,
-  voiceAlwaysOn,
-  setVoiceAlwaysOn,
-  voiceSupported,
-  voiceListening,
   canSubmit,
   submitting,
   onSubmit,
 }: {
   entryMode: 'TOTAL' | 'PER_DART'
   setEntryMode: (m: 'TOTAL' | 'PER_DART') => void
-  autodartsBaselineDarts: Dart[] | null
+  revision: number
+  reviewDarts?: Dart[]
   perDartOnly: boolean
   totalText: string
   setTotalText: (t: string) => void
   darts: Dart[]
   setDarts: (d: Dart[]) => void
-  onVoiceInput: () => void
-  voiceAlwaysOn: boolean
-  setVoiceAlwaysOn: (v: boolean | ((prev: boolean) => boolean)) => void
-  voiceSupported: boolean
-  voiceListening: boolean
   canSubmit: boolean
   submitting: boolean
   onSubmit: () => void
 }) {
-  const [dartMode, setDartMode] = useState<1 | 2 | 3>(1)
-  const [dartCursor, setDartCursor] = useState(0)
-
   const totalFromDarts = darts.reduce((acc, d) => acc + dartPoints(d), 0)
   const totalMode = entryMode === 'TOTAL' && !perDartOnly
   const scoreInvalid = totalMode && Number(totalText) > 180
-
-  useEffect(() => {
-    if (autodartsBaselineDarts) setDartCursor(0)
-  }, [autodartsBaselineDarts])
 
   function setDigit(d: string) {
     setTotalText((totalText + d).replace(/^0+(?=\d)/, '').slice(0, 3))
   }
 
-  function undoDart() {
-    if (entryMode !== 'PER_DART') return
-    const nextCursor = Math.max(0, dartCursor - 1)
-    const idx = Math.min(2, nextCursor)
-    const out = darts.map((d, i) => (i === idx ? ({ segment: 0, multiplier: 0 } as Dart) : d))
-    setDarts(out)
-    setDartCursor(nextCursor)
-  }
-
-  function recordDart(dart: Dart) {
-    if (dartCursor >= 3) return
-    setDarts(darts.map((d, i) => i === dartCursor ? dart : d))
-    setDartCursor(Math.min(3, dartCursor + 1))
-    setDartMode(1)
-  }
-
   return (
-    <fieldset className="card turnEntry mobileTurnEntry" disabled={submitting || !canSubmit}>
+    <fieldset className="card turnEntry" disabled={!canSubmit} aria-busy={submitting}>
       <legend className="srOnly">Enter visit</legend>
       <div className="entryBar">
+        <span className="entryTitle">Enter visit</span>
         <div className="row" role="group" aria-label="Scoring input">
           {!perDartOnly ? <button className="btn" aria-pressed={totalMode} onClick={() => setEntryMode('TOTAL')}>Total</button> : null}
           <button className="btn" aria-pressed={!totalMode} onClick={() => setEntryMode('PER_DART')}>Per dart</button>
         </div>
-        {voiceSupported ? <div className="row voiceActions">
-          <button className="btn" aria-pressed={voiceListening} onClick={onVoiceInput}>{voiceListening ? 'Stop mic' : 'Mic'}</button>
-          <button className="btn" aria-label="Always-on voice input" aria-pressed={voiceAlwaysOn} onClick={() => setVoiceAlwaysOn((v) => !v)}>Auto</button>
-        </div> : null}
       </div>
       <div className="entryDisplay">
-        <span className={scoreInvalid ? 'entryHint invalidScore' : 'entryHint'}>{scoreInvalid ? 'Enter 0–180' : 'Visit score'}</span>
-        <output className="entryScore">{totalMode ? totalText || '0' : totalFromDarts}</output>
+        {totalMode ? <>
+          <label htmlFor="visit-score" className={scoreInvalid ? 'entryHint invalidScore' : 'entryHint'}>{scoreInvalid ? 'Enter 0–180' : 'Visit score'}</label>
+          <input id="visit-score" className="entryScore" inputMode="none" autoComplete="off" placeholder="0"
+            value={totalText} readOnly={submitting} aria-invalid={scoreInvalid}
+            onChange={(event) => setTotalText(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
+            onKeyDown={(event) => { if (event.key === 'Enter' && canSubmit && !scoreInvalid && !submitting) onSubmit() }} />
+        </> : <><span className="entryHint">Visit score</span><output className="entryScore">{totalFromDarts}</output></>}
       </div>
 
       {totalMode ? (
-        <div className="col" style={{ gap: 10 }}>
           <div className="padGrid">
             {['1','2','3','4','5','6','7','8','9'].map((n) => (
               <button key={n} className="padKey" onClick={() => setDigit(n)}>
@@ -1231,45 +934,7 @@ function MobileTurnEntry({
             <button className="padKey" onClick={() => setDigit('0')}>0</button>
             <button className="padKey padKeyAlt" aria-label="Delete last digit" onClick={() => setTotalText(totalText.slice(0, -1))}>⌫</button>
           </div>
-        </div>
-      ) : (
-        <div className="col" style={{ gap: 10 }}>
-          <div className="dartSlots" role="group" aria-label="Select a dart to edit">
-            {darts.map((dart, index) => <button key={index} className="btn" aria-pressed={dartCursor === index} onClick={() => setDartCursor(index)}>Dart {index + 1}: {dartToLabel(dart)}</button>)}
-          </div>
-          <div className="multTabs">
-            {([
-              [1, 'Single'],
-              [2, 'Double'],
-              [3, 'Treble'],
-            ] as const).map(([k, label]) => (
-              <button
-                key={k}
-                className={dartMode === k ? 'multTab multTabActive' : 'multTab'}
-                aria-pressed={dartMode === k}
-                onClick={() => setDartMode(k)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="segGrid">
-            {Array.from({ length: 20 }, (_, idx) => idx + 1).map((n) => (
-              <button key={n} className="padKey" disabled={dartCursor >= 3} onClick={() => recordDart({ segment: n, multiplier: dartMode })}>
-                {n}
-              </button>
-            ))}
-          </div>
-
-          <div className="dartActions">
-            <button className="btn" disabled={dartCursor >= 3} onClick={() => recordDart({ segment: 25, multiplier: 2 })}>Bull 50</button>
-            <button className="btn" disabled={dartCursor >= 3} onClick={() => recordDart({ segment: 25, multiplier: 1 })}>Outer 25</button>
-            <button className="btn" disabled={dartCursor >= 3} onClick={() => recordDart({ segment: 0, multiplier: 0 })}>Miss</button>
-            <button className="btn" onClick={undoDart}>Undo</button>
-          </div>
-        </div>
-      )}
+      ) : <DartKeypad darts={darts} onChange={setDarts} revision={revision} reviewDarts={reviewDarts} />}
       <button className="btn btnPrimary entrySubmit" onClick={onSubmit} disabled={!canSubmit || scoreInvalid || submitting}>{submitting ? 'Submitting…' : 'Submit visit'}</button>
     </fieldset>
   )
@@ -1909,25 +1574,6 @@ function isSegmentWord(word?: string): boolean {
   return Number.isInteger(n) && n >= 1 && n <= 20
 }
 
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false)
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const m = window.matchMedia(query)
-    const onChange = () => setMatches(Boolean(m.matches))
-    onChange()
-    if (typeof m.addEventListener === 'function') m.addEventListener('change', onChange)
-    else m.addListener(onChange)
-    return () => {
-      if (typeof m.removeEventListener === 'function') m.removeEventListener('change', onChange)
-      else m.removeListener(onChange)
-    }
-  }, [query])
-
-  return matches
-}
-
 function canSubmitForCurrent(code: string, currentPlayerId: string): boolean {
   if (typeof window === 'undefined') return false
   try {
@@ -1959,108 +1605,6 @@ function voiceRecognitionErrorMessage(error?: string): string {
   return 'Voice capture failed in this browser.'
 }
 
-function EnterTurnCard({
-  currentPlayer,
-  checkoutSuggestion,
-  entryMode,
-  setEntryMode,
-  darts,
-  setDarts,
-  totalText,
-  setTotalText,
-  submitTurn,
-  settings,
-  finished,
-  canSubmit,
-  submitting,
-  autodartsControllingTurn,
-  autodartsTurnReady,
-  perDartOnly,
-}: {
-  currentPlayer: Player | null
-  checkoutSuggestion: { labels: string[] } | null
-  entryMode: 'TOTAL' | 'PER_DART'
-  setEntryMode: (m: 'TOTAL' | 'PER_DART') => void
-  darts: Dart[]
-  setDarts: (d: Dart[]) => void
-  totalText: string
-  setTotalText: (t: string) => void
-  submitTurn: () => void
-  settings: MatchSnapshot['settings'] | undefined
-  finished: boolean
-  canSubmit: boolean
-  submitting: boolean
-  autodartsControllingTurn: boolean
-  autodartsTurnReady: boolean
-  perDartOnly: boolean
-}) {
-  const effectiveEntryMode: 'TOTAL' | 'PER_DART' = perDartOnly ? 'PER_DART' : entryMode
-  const invalidTotal = effectiveEntryMode === 'TOTAL' && Number(totalText) > 180
-  const allowSubmit = Boolean(settings && currentPlayer && !finished && canSubmit && !submitting && !invalidTotal)
-
-  return (
-    <fieldset className="card turnEntry" disabled={!canSubmit || submitting}>
-      <legend className="srOnly">Enter visit</legend>
-      <div className="row spread">
-        <h2 className="sectionTitle">Enter visit</h2>
-        <span className="scoreMeta">
-        {currentPlayer ? (
-          canSubmit ? 'Your turn' : `${currentPlayer.name} to throw`
-        ) : (
-          'Waiting for match'
-        )}
-        </span>
-      </div>
-
-      {checkoutSuggestion ? (
-        <div className="row" style={{ marginTop: 10, justifyContent: 'space-between' }}>
-          <span className="pill">Checkout</span>
-          <span className="pill" style={{ color: 'var(--text)' }}>{checkoutSuggestion.labels.join('  ')}</span>
-        </div>
-      ) : null}
-
-      <div className="col" style={{ marginTop: 10 }}>
-        <div className="row" role="group" aria-label="Scoring input">
-          {!perDartOnly ? <button className="btn" onClick={() => setEntryMode('TOTAL')} aria-pressed={effectiveEntryMode === 'TOTAL'}>
-            Total
-          </button> : null}
-          <button className="btn" onClick={() => setEntryMode('PER_DART')} aria-pressed={effectiveEntryMode === 'PER_DART'}>
-            Per dart
-          </button>
-        </div>
-
-        {effectiveEntryMode === 'PER_DART' ? (
-          <PerDartEditor darts={darts} onChange={setDarts} />
-        ) : (
-          <div className="col">
-            <label className="help" htmlFor="visit-score">Visit score (0–180)</label>
-            <input
-              id="visit-score"
-              className="input visitScoreInput"
-              inputMode="numeric"
-              placeholder="0"
-              value={totalText}
-              aria-invalid={invalidTotal}
-              onChange={(e) => setTotalText(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
-              onKeyDown={(e) => { if (e.key === 'Enter' && allowSubmit) submitTurn() }}
-            />
-            {invalidTotal ? <span className="help invalidScore" role="status">Enter a score from 0 to 180.</span> : null}
-          </div>
-        )}
-
-        <button className="btn btnPrimary" onClick={submitTurn} disabled={!allowSubmit}>
-          {submitting ? 'Submitting…' : 'Submit visit'}
-        </button>
-        {!finished && autodartsControllingTurn && !autodartsTurnReady ? <div className="help">Autodarts is entering this turn.</div> : null}
-        {!finished && autodartsTurnReady ? <div className="help">Review the autodarts darts and submit when ready.</div> : null}
-        {!finished && currentPlayer && !canSubmit && !autodartsControllingTurn ? (
-          <div className="help">Waiting for {currentPlayer.name} to submit.</div>
-        ) : null}
-      </div>
-    </fieldset>
-  )
-}
-
 function PlayerPanel({
   player,
   isCurrent,
@@ -2068,7 +1612,6 @@ function PlayerPanel({
   settings,
   match,
   stats,
-  autodartsControllingTurn,
 }: {
   player: Player
   isCurrent: boolean
@@ -2076,37 +1619,22 @@ function PlayerPanel({
   settings: MatchSnapshot['settings'] | undefined
   match: MatchSnapshot | undefined
   stats: PlayerStats | undefined
-  autodartsControllingTurn: boolean
 }) {
   const ps = leg?.players?.find((x) => x.playerId === player.id)
   const last = lastScoreForPlayer(leg?.turns ?? [], player.id)
   const thrown = dartsThrownForPlayer(leg?.turns ?? [], player.id)
 
   return (
-    <div className={isCurrent ? 'playerCard playerCardUp' : 'playerCard'}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <div className="row" style={{ flexWrap: 'wrap' }}>
-          <strong className="scoreName">{player.name}</strong>
-          {isCurrent ? <span className="scoreTurn">Up next</span> : null}
-          {settings?.gameType === 'X01' && settings.doubleIn ? (
-            <span className="pill" style={{ color: ps?.isIn ? 'var(--good)' : 'var(--muted)' }}>
-              {ps?.isIn ? 'IN' : 'NOT IN'}
-            </span>
-          ) : null}
-          {autodartsControllingTurn ? <span className="pill" style={{ color: 'var(--accent)' }}>Autodarts scoring</span> : null}
-        </div>
-        {match?.settings?.gameType === 'PRACTICE' ? null : match?.settings?.setsEnabled ? <span className="pill">Sets: {stats?.setsWon ?? 0}</span> : null}
+    <article className="playerCard" data-current={isCurrent} aria-label={player.name}>
+      <div className="scoreCardHeader"><strong className="scoreName">{player.name}</strong>{isCurrent ? <span className="scoreTurn">Throwing</span> : null}</div>
+      <div className="playerBigNum">{ps?.remaining ?? '–'}</div>
+      <div className="scoreMeta">
+        {match?.settings?.gameType === 'PRACTICE' ? <span>{stats?.dartsThrown ?? thrown} darts</span> : <span>{stats?.legsWon ?? 0} legs</span>}
+        {match?.settings?.setsEnabled ? <span>{stats?.setsWon ?? 0} sets</span> : null}
+        {settings?.gameType === 'X01' && settings.doubleIn && !ps?.isIn ? <span>Not in</span> : null}
+        <span>Last {last ?? '–'}</span>
       </div>
-
-      <div className="col scoreCardBody">
-        <div className="playerBigNum playerBigNumDesktop">{ps?.remaining ?? '-'}</div>
-        <div className="row scoreMeta">
-          {match?.settings?.gameType === 'PRACTICE' ? null : <span>{stats?.legsWon ?? 0} legs</span>}
-          {settings?.gameType !== 'X01' ? <span>Darts {stats?.dartsThrown ?? thrown}</span> : <span>Avg {stats?.threeDartAvg ?? '–'}</span>}
-          <span>Last {last ?? '–'}</span>
-        </div>
-      </div>
-    </div>
+    </article>
   )
 }
 
@@ -2194,208 +1722,6 @@ function ScoresByPlayer({
           </div>
         )
       })}
-    </div>
-  )
-}
-
-type DartKind = 'MISS' | 'S' | 'D' | 'T' | 'SB' | 'DB'
-
-function kindFromDart(d: Dart): DartKind {
-  if (d.multiplier === 0) return 'MISS'
-  if (d.segment === 25 && d.multiplier === 1) return 'SB'
-  if (d.segment === 25 && d.multiplier === 2) return 'DB'
-  if (d.multiplier === 3) return 'T'
-  if (d.multiplier === 2) return 'D'
-  return 'S'
-}
-
-function dartFrom(kind: DartKind, segment: number): Dart {
-  if (kind === 'MISS') return { segment: 0, multiplier: 0 }
-  if (kind === 'SB') return { segment: 25, multiplier: 1 }
-  if (kind === 'DB') return { segment: 25, multiplier: 2 }
-  const seg = Math.max(1, Math.min(20, Math.floor(segment)))
-  if (kind === 'T') return { segment: seg, multiplier: 3 }
-  if (kind === 'D') return { segment: seg, multiplier: 2 }
-  return { segment: seg, multiplier: 1 }
-}
-
-function PerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
-  const isMobile = useMediaQuery('(max-width: 520px)')
-
-  if (isMobile) {
-    return <MobilePerDartEditor darts={darts} onChange={onChange} />
-  }
-
-  return <PcPerDartEditor darts={darts} onChange={onChange} />
-}
-
-function PcPerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
-  const [segText, setSegText] = useState<string[]>(() =>
-    [0, 1, 2].map((i) => String((darts[i]?.segment ?? 20) === 25 ? 20 : darts[i]?.segment ?? 20)),
-  )
-
-  useEffect(() => {
-    setSegText([0, 1, 2].map((i) => String((darts[i]?.segment ?? 20) === 25 ? 20 : darts[i]?.segment ?? 20)))
-  }, [darts])
-
-  function setDart(i: number, next: Dart) {
-    const out = darts.map((d, idx) => (idx === i ? next : d))
-    onChange(out)
-  }
-
-  function setKind(i: number, kind: DartKind) {
-    const currentSeg = Number(segText[i] ?? '20')
-    const seg = Number.isFinite(currentSeg) ? currentSeg : 20
-    setDart(i, dartFrom(kind, seg))
-  }
-
-  function setSegment(i: number, raw: string) {
-    const v = raw.replace(/[^0-9]/g, '').slice(0, 2)
-    setSegText((s) => s.map((x, idx) => (idx === i ? v : x)))
-    const n = v === '' ? NaN : Number(v)
-    if (!Number.isFinite(n)) return
-    const k = kindFromDart(darts[i] ?? { segment: 20, multiplier: 1 })
-    if (k === 'MISS' || k === 'SB' || k === 'DB') return
-    setDart(i, dartFrom(k, n))
-  }
-
-  return (
-    <div className="col">
-      <div className="help">Enter each dart as Single/Double/Triple + segment 1-20, or SB (25) / DB (50) / Miss.</div>
-
-      <div className="grid2">
-        {[0, 1, 2].map((i) => {
-          const d = darts[i] ?? { segment: 20, multiplier: 1 }
-          const kind = kindFromDart(d)
-          const needsSeg = kind === 'S' || kind === 'D' || kind === 'T'
-          return (
-            <div key={i} className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
-              <div className="help" style={{ marginBottom: 8 }}>Dart {i + 1}</div>
-              <div className="col">
-                <select className="select" value={kind} onChange={(e) => setKind(i, e.target.value as DartKind)}>
-                  <option value="MISS">Miss</option>
-                  <option value="S">Single</option>
-                  <option value="D">Double</option>
-                  <option value="T">Triple</option>
-                  <option value="SB">Single bull (25)</option>
-                  <option value="DB">Bullseye (50)</option>
-                </select>
-
-                <input
-                  className="input"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="1-20"
-                  disabled={!needsSeg}
-                  value={needsSeg ? segText[i] ?? '' : ''}
-                  onChange={(e) => setSegment(i, e.target.value)}
-                />
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function MobilePerDartEditor({ darts, onChange }: { darts: Dart[]; onChange: (d: Dart[]) => void }) {
-  const [active, setActive] = useState<0 | 1 | 2>(0)
-  const [panel, setPanel] = useState<'KIND' | 'SEG'>('KIND')
-  const current = darts[active] ?? { segment: 20, multiplier: 1 }
-  const kind = kindFromDart(current)
-  const needsSeg = kind === 'S' || kind === 'D' || kind === 'T'
-
-  function setDart(i: 0 | 1 | 2, next: Dart) {
-    const out = darts.map((d, idx) => (idx === i ? next : d))
-    onChange(out)
-  }
-
-  function setKind(nextKind: DartKind) {
-    const seg = current.segment === 25 ? 20 : current.segment || 20
-    setDart(active, dartFrom(nextKind, seg))
-    if (nextKind === 'S' || nextKind === 'D' || nextKind === 'T') setPanel('SEG')
-    else setPanel('KIND')
-  }
-
-  function setSegment(seg: number) {
-    setDart(active, dartFrom(kind === 'S' || kind === 'D' || kind === 'T' ? kind : 'S', seg))
-  }
-
-  return (
-    <div className="col">
-      <div className="help">Tap each dart (no typing).</div>
-
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="pill">Dart {active + 1} · {kind}{needsSeg ? ` ${current.segment}` : ''}</span>
-        <div className="row">
-          {[0, 1, 2].map((i) => (
-            <button
-              key={i}
-              className={active === i ? 'btn btnPrimary' : 'btn'}
-              onClick={() => setActive(i as 0 | 1 | 2)}
-            >
-              {i + 1}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className={panel === 'KIND' ? 'btn btnPrimary' : 'btn'} onClick={() => setPanel('KIND')}>
-          Type
-        </button>
-        <button className={panel === 'SEG' ? 'btn btnPrimary' : 'btn'} onClick={() => setPanel('SEG')} disabled={!needsSeg}>
-          Segment
-        </button>
-        <span className="pill">{needsSeg ? '1-20' : kind === 'SB' ? '25' : kind === 'DB' ? '50' : ''}</span>
-      </div>
-
-      {panel === 'KIND' ? (
-        <div className="row" style={{ flexWrap: 'wrap' }}>
-          <button className={kind === 'MISS' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('MISS')}>
-            Miss
-          </button>
-          <button className={kind === 'S' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('S')}>
-            Single
-          </button>
-          <button className={kind === 'D' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('D')}>
-            Double
-          </button>
-          <button className={kind === 'T' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('T')}>
-            Triple
-          </button>
-          <button className={kind === 'SB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('SB')}>
-            SB
-          </button>
-          <button className={kind === 'DB' ? 'btn btnPrimary' : 'btn'} onClick={() => setKind('DB')}>
-            DB
-          </button>
-        </div>
-      ) : (
-        <div className="col" style={{ gap: 10 }}>
-          <div className="segGrid">
-            {Array.from({ length: 20 }, (_, idx) => idx + 1).map((n) => (
-              <button
-                key={n}
-                className={n === current.segment ? 'key keyPrimary' : 'key'}
-                onClick={() => setSegment(n)}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <button className="btn" onClick={() => setActive((a) => (a === 0 ? 0 : ((a - 1) as 0 | 1 | 2)))}>
-          Back
-        </button>
-        <button className="btn btnPrimary" onClick={() => setActive((a) => (a === 2 ? 2 : ((a + 1) as 0 | 1 | 2)))}>
-          Next
-        </button>
-      </div>
     </div>
   )
 }
