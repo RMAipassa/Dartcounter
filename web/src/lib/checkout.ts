@@ -75,7 +75,7 @@ export function suggestCheckout(args: {
   maxDarts?: 3 | 2 | 1
 }): CheckoutSuggestion | null {
   const remaining = args.remaining
-  if (!Number.isFinite(remaining) || remaining <= 1) return null
+  if (!Number.isFinite(remaining) || remaining <= 0 || (remaining === 1 && args.outRule !== 'ANY')) return null
 
   const maxDarts = args.maxDarts ?? 3
   const outRule = args.outRule

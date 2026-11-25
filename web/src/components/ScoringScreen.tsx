@@ -9,15 +9,22 @@ export const ScoringMenuContext = createContext<{
   target: HTMLElement | null
   open: boolean
   show: () => void
+  undo: (() => Promise<void>) | null
+  undoing: boolean
 } | null>(null)
 
-export function ScoringHeader({ title, detail, back, backLabel }: { title: string; detail?: string; back: string; backLabel: string }) {
+export function ScoringHeader({ title, detail, back, backLabel, compact, actions }: {
+  title: string; detail?: string; back: string; backLabel: string; compact?: boolean; actions?: ReactNode
+}) {
   const menu = useContext(ScoringMenuContext)
   return (
-    <header className="scoringHeader">
+    <header className="scoringHeader" data-compact={compact}>
       <Link href={back} className="btn scoringBack" aria-label={backLabel}><Icon name="arrow" /></Link>
       <div className="scoringHeading"><h1>{title}</h1>{detail ? <p>{detail}</p> : null}</div>
-      <button type="button" className="btn scoringMenuTrigger" onClick={menu?.show} aria-haspopup="dialog" aria-expanded={menu?.open}><Icon name="menu" /> Menu</button>
+      <div className="scoringHeaderActions">
+        {actions}
+        <button type="button" className="btn scoringMenuTrigger" onClick={menu?.show} aria-haspopup="dialog" aria-expanded={menu?.open} aria-label="Game menu"><Icon name={compact ? 'sliders' : 'menu'} /> <span>Menu</span></button>
+      </div>
     </header>
   )
 }

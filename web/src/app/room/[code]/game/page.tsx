@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
@@ -8,9 +8,12 @@ import { getSocket } from '@/lib/socket'
 import type { Dart, MatchSnapshot, Player, PlayerStats, RoomSnapshot } from '@/lib/types'
 import { suggestCheckout, type OutRule } from '@/lib/checkout'
 import DartKeypad from '@/components/DartKeypad'
-import { ScoringHeader, ScoringMenu, ScoringMenuSection } from '@/components/ScoringScreen'
+import { ScoringHeader, ScoringMenu, ScoringMenuContext, ScoringMenuSection } from '@/components/ScoringScreen'
+import Icon from '@/components/Icon'
+import { NameMark } from '@/components/NameRow'
 
 type VoiceLang = 'EN' | 'NL' | 'DE'
+const quickScores = [7, 26, 41, 45, 60, 81, 85, 100, 140, 180] as const
 
 export default function GamePage() {
   const params = useParams<{ code: string }>()
@@ -42,6 +45,7 @@ export default function GamePage() {
   const [voiceLastTranscript, setVoiceLastTranscript] = useState<string>('')
   const [voiceHelpOpen, setVoiceHelpOpen] = useState(false)
   const [voiceCalloutsEnabled, setVoiceCalloutsEnabled] = useState(true)
+  const voiceCalloutsEnabledRef = useRef(voiceCalloutsEnabled)
   const [voiceAlwaysOn, setVoiceAlwaysOn] = useState(false)
   const [voicePausedForCallout, setVoicePausedForCallout] = useState(false)
   const voiceLang: VoiceLang = 'EN'
@@ -220,7 +224,7 @@ export default function GamePage() {
 
     socket.on('room:turnAccepted', (evt: any) => {
       voicePendingSubmitRef.current = null
-      if (!mounted || !voiceCalloutsEnabled) return
+      if (!mounted || !voiceCalloutsEnabledRef.current) return
       void enqueueCalloutPlayback(() => playTurnCallout(evt, voiceLang, activeCalloutAudioRef, missingCalloutAudioRef))
     })
 
@@ -253,7 +257,7 @@ export default function GamePage() {
       socket.off('room:autodartsTurnCleared')
       socket.off('room:turnAccepted')
     }
-  }, [code, hostSecret, serverUrl, hydrated, voiceCalloutsEnabled, enqueueCalloutPlayback])
+  }, [code, hostSecret, serverUrl, hydrated, enqueueCalloutPlayback])
 
   const match = snap?.match
   const leg = match?.leg
@@ -267,6 +271,7 @@ export default function GamePage() {
   finishedRef.current = Boolean(finished)
   voiceAlwaysOnRef.current = voiceAlwaysOn
   voiceListeningRef.current = voiceListening
+  voiceCalloutsEnabledRef.current = voiceCalloutsEnabled
   const statsByPlayerId = match?.statsByPlayerId ?? {}
   const isX01 = settings?.gameType === 'X01'
   const isAround = settings?.gameType === 'AROUND'
@@ -302,20 +307,12 @@ export default function GamePage() {
   const perDartOnly = autodarts?.status === 'CONNECTED' || isAround || practicePerDartOnly || Boolean(isX01 && settings.doubleIn && currentLegPlayer && !currentLegPlayer.isIn)
   const outRule: OutRule = isX01 ? (settings.doubleOut ? 'DOUBLE' : settings.masterOut ? 'MASTER' : 'ANY') : 'ANY'
   const checkoutMax = outRule === 'MASTER' ? 180 : 170
-  const checkoutSuggestion =
-    isX01 &&
-    currentLegPlayer &&
-    currentLegPlayer.isIn &&
-    currentLegPlayer.remaining <= checkoutMax &&
-    currentLegPlayer.remaining > 1
-      ? suggestCheckout({ remaining: currentLegPlayer.remaining, outRule })
-      : null
   const settingsSummary = settings
     ? settings.gameType === 'X01'
-      ? `${settings.startScore} · ${settings.doubleIn ? 'DI' : 'SI'} · ${settings.doubleOut ? 'DO' : settings.masterOut ? 'MO' : 'SO'}`
+      ? `${settings.doubleIn ? 'Double in · ' : ''}${settings.doubleOut ? 'Double out' : settings.masterOut ? 'Master out' : 'Straight out'}`
       : settings.gameType === 'AROUND'
         ? 'Around the Board'
-        : `Practice · ${settings.practiceMode === 'X01' ? `X01 ${settings.startScore}` : settings.practiceMode.replaceAll('_', ' ')}`
+        : settings.practiceMode === 'X01' ? `X01 · ${settings.startScore}` : settings.practiceMode.toLowerCase().replaceAll('_', ' ')
     : null
 
   const [scoresTab, setScoresTab] = useState<'RECENT' | 'ALL'>('RECENT')
@@ -375,7 +372,7 @@ export default function GamePage() {
       const socket = getSocket(serverUrl)
       const payload: any = {}
 
-      const mode = override?.mode ?? entryMode
+      const mode = override?.mode ?? (perDartOnly ? 'PER_DART' : entryMode)
       if ((settings?.gameType === 'AROUND' || (settings?.gameType === 'PRACTICE' && settings.practiceMode !== 'X01')) && mode === 'TOTAL') {
         throw new Error(`${settings.gameType} mode uses per-dart input only`)
       }
@@ -386,17 +383,15 @@ export default function GamePage() {
         if (!Number.isInteger(payload.total) || payload.total < 0 || payload.total > 180) throw new Error('Enter a score from 0 to 180.')
       }
 
-    const res = await socket.emitWithAck('game:submitTurn', payload)
+      const res = await socket.emitWithAck('game:submitTurn', payload)
       if (!res?.ok) {
         if (res?.code === 'NEED_DARTS_FOR_DOUBLE_IN' || res?.code === 'AUTODARTS_PER_DART_ONLY') setEntryMode('PER_DART')
         throw new Error(res?.message ?? 'Failed')
       }
 
-      const submittedMode = override?.mode ?? entryMode
       setEntryRevision((revision) => revision + 1)
-      if (submittedMode === 'TOTAL') {
-        setTotalText('')
-      } else {
+      setTotalText('')
+      if (mode === 'PER_DART') {
         setDarts([
           { segment: 0, multiplier: 0 },
           { segment: 0, multiplier: 0 },
@@ -742,8 +737,10 @@ export default function GamePage() {
   )
 
   return (
-    <main className="gamePage">
-      <ScoringHeader title={isPractice ? 'Practice' : 'Scoreboard'} detail={settingsSummary ?? `Room ${code}`}
+    <main className="gamePage matchGamePage">
+      <ScoringHeader title={isX01 ? String(settings.startScore) : isPractice ? 'Practice' : 'Scoreboard'} detail={settingsSummary ?? `Room ${code}`} compact
+        actions={<button type="button" className="btn scoreSound" aria-label="Score callouts" aria-pressed={voiceCalloutsEnabled}
+          onClick={() => setVoiceCalloutsEnabled((enabled) => !enabled)}><Icon name={voiceCalloutsEnabled ? 'volume' : 'mute'} /></button>}
         back={isPractice ? '/create?mode=practice' : finished ? `/room/${code}/lobby` : '/'}
         backLabel={isPractice ? 'Back to practice setup' : finished ? 'Back to lobby' : 'Back to home'} />
       {finished ? (
@@ -765,17 +762,20 @@ export default function GamePage() {
               leg={leg} settings={settings} match={match} stats={statsByPlayerId[p.id]} />)}
             {!players.length ? <p className="playerCard help">Waiting for the scoreboard…</p> : null}
           </div>
-          {!finished ? <div className="turnBanner" data-active={canSubmitNow}>
-            <span>{autodartsControllingTurn ? autodartsTurnReady && canSubmitNow ? 'Review captured visit' : 'Autodarts scoring'
-              : canSubmitNow ? 'Your turn' : currentPlayer ? `${currentPlayer.name} to throw` : 'Waiting for match'}</span>
-            {checkoutSuggestion ? <span>Checkout: <strong>{checkoutSuggestion.labels.join(' · ')}</strong></span> : null}
+          {!finished && !canSubmitNow && !autodartsControllingTurn ? <div className="turnBanner">
+            <span>{match?.status === 'LOBBY' ? 'The match is in the lobby' : currentPlayer ? `${currentPlayer.name} to throw` : 'Waiting for match'}</span>
+            {match?.status === 'LOBBY' ? <Link className="btn" href={`/room/${code}/lobby`}>Back to lobby</Link> : null}
           </div> : null}
         </section>
-        {!finished && (canSubmitNow || autodartsControllingTurn) ? <MatchTurnEntry
+        {!finished && (canSubmitNow || autodartsControllingTurn) ? <MatchTurnEntry key={`${match?.currentLegIndex}:${currentPlayer?.id}`}
           entryMode={entryMode} setEntryMode={setEntryMode} perDartOnly={perDartOnly}
           totalText={totalText} setTotalText={setTotalText} darts={darts} setDarts={setDarts}
           revision={entryRevision} reviewDarts={autodartsLoadedForReview?.darts}
-          canSubmit={canSubmitNow} submitting={submitting} onSubmit={() => void submitTurn()} /> : null}
+          name={currentPlayer?.name ?? 'Enter visit'} remaining={isX01 && currentLegPlayer?.isIn ? currentLegPlayer.remaining : null}
+          boardStatus={autodartsControllingTurn ? (autodartsTurnReady && canSubmitNow ? 'Review captured visit' : 'Autodarts scoring') : null}
+          canUndo={Boolean(leg?.turns.length || match?.currentLegIndex)}
+          canSubmit={canSubmitNow} submitting={submitting}
+          onSubmit={(points) => void submitTurn(points === undefined ? undefined : { mode: 'TOTAL', total: points })} /> : null}
       </div>
 
       <ScoringMenu>
@@ -849,25 +849,6 @@ export default function GamePage() {
   )
 }
 
-function lastScoreForPlayer(turns: MatchSnapshot['leg']['turns'], playerId: string): number | null {
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const t = turns[i]
-    if (t.playerId === playerId) return t.scoreTotal
-  }
-  return null
-}
-
-function dartsThrownForPlayer(turns: MatchSnapshot['leg']['turns'], playerId: string): number {
-  let sum = 0
-  for (const t of turns) {
-    if (t.playerId !== playerId) continue
-    if (t.input?.mode === 'PER_DART' && Array.isArray(t.input.darts)) sum += t.input.darts.length
-    else if (t.input?.mode === 'TOTAL' && Array.isArray(t.input.darts)) sum += t.input.darts.length
-    else sum += 3
-  }
-  return sum
-}
-
 function MatchTurnEntry({
   entryMode,
   setEntryMode,
@@ -878,6 +859,10 @@ function MatchTurnEntry({
   setTotalText,
   darts,
   setDarts,
+  name,
+  remaining,
+  boardStatus,
+  canUndo,
   canSubmit,
   submitting,
   onSubmit,
@@ -891,51 +876,92 @@ function MatchTurnEntry({
   setTotalText: (t: string) => void
   darts: Dart[]
   setDarts: (d: Dart[]) => void
+  name: string
+  remaining: number | null
+  boardStatus: string | null
+  canUndo: boolean
   canSubmit: boolean
   submitting: boolean
-  onSubmit: () => void
+  onSubmit: (points?: number) => void
 }) {
+  const menu = useContext(ScoringMenuContext)
+  const [enterRemaining, setEnterRemaining] = useState(false)
+  const [remainingText, setRemainingText] = useState('')
   const totalFromDarts = darts.reduce((acc, d) => acc + dartPoints(d), 0)
   const totalMode = entryMode === 'TOTAL' && !perDartOnly
-  const scoreInvalid = totalMode && Number(totalText) > 180
+  const canEnterRemaining = totalMode && remaining !== null
+  const usingRemaining = canEnterRemaining && enterRemaining
+  const displayedText = usingRemaining ? remainingText : totalText
+  const digitLimit = usingRemaining ? Math.max(3, String(remaining).length) : 3
+  const points = usingRemaining ? remaining! - Number(remainingText) : Number(totalText)
+  const invalid = totalMode && displayedText !== '' && (points < 0 || points > 180)
+  const disabled = !canSubmit || submitting || Boolean(menu?.undoing)
+  const canScore = !disabled && !invalid && (!usingRemaining || remainingText !== '')
 
-  function setDigit(d: string) {
-    setTotalText((totalText + d).replace(/^0+(?=\d)/, '').slice(0, 3))
+  useEffect(() => {
+    setRemainingText('')
+  }, [revision])
+
+  function updateInput(raw: string) {
+    const value = raw.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '').slice(0, digitLimit)
+    if (usingRemaining) setRemainingText(value)
+    else setTotalText(value)
+  }
+
+  function submit() {
+    if (canScore) onSubmit(totalMode ? points : undefined)
   }
 
   return (
-    <fieldset className="card turnEntry" disabled={!canSubmit} aria-busy={submitting}>
+    <fieldset className="card turnEntry matchTurnEntry" disabled={!canSubmit || menu?.undoing} aria-busy={submitting}>
       <legend className="srOnly">Enter visit</legend>
       <div className="entryBar">
-        <span className="entryTitle">Enter visit</span>
-        <div className="row" role="group" aria-label="Scoring input">
-          {!perDartOnly ? <button className="btn" aria-pressed={totalMode} onClick={() => setEntryMode('TOTAL')}>Total</button> : null}
-          <button className="btn" aria-pressed={!totalMode} onClick={() => setEntryMode('PER_DART')}>Per dart</button>
+        <span className="currentScorer"><span className="scorerDot" aria-hidden="true" /><strong title={name}>{name}</strong></span>
+        <div className="entryDisplay" data-remaining={usingRemaining}>
+          {totalMode ? <>
+            <label htmlFor="visit-score" className="srOnly">{usingRemaining ? 'Remaining score' : 'Visit score'}</label>
+            <input id="visit-score" className="entryScore" inputMode="none" autoComplete="off" placeholder={usingRemaining ? '–' : '0'}
+              value={displayedText} readOnly={submitting} aria-invalid={invalid} aria-describedby={usingRemaining || invalid ? 'visit-note' : undefined}
+              onChange={(event) => updateInput(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') submit() }} />
+          </> : <output className="entryScore" aria-label="Visit score">{totalFromDarts}</output>}
+        </div>
+        <div className="entryModeToggle" role="group" aria-label="Scoring input">
+          {!perDartOnly ? <button type="button" className="btn" aria-pressed={totalMode} onClick={() => setEntryMode('TOTAL')}>Quick</button> : null}
+          <button type="button" className="btn" aria-pressed={!totalMode} onClick={() => { setEnterRemaining(false); setEntryMode('PER_DART') }}>Per dart</button>
         </div>
       </div>
-      <div className="entryDisplay">
-        {totalMode ? <>
-          <label htmlFor="visit-score" className={scoreInvalid ? 'entryHint invalidScore' : 'entryHint'}>{scoreInvalid ? 'Enter 0–180' : 'Visit score'}</label>
-          <input id="visit-score" className="entryScore" inputMode="none" autoComplete="off" placeholder="0"
-            value={totalText} readOnly={submitting} aria-invalid={scoreInvalid}
-            onChange={(event) => setTotalText(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
-            onKeyDown={(event) => { if (event.key === 'Enter' && canSubmit && !scoreInvalid && !submitting) onSubmit() }} />
-        </> : <><span className="entryHint">Visit score</span><output className="entryScore">{totalFromDarts}</output></>}
-      </div>
-
+      {boardStatus ? <div className="entryNote" role="status">{boardStatus}</div> : null}
+      {usingRemaining || invalid ? <div id="visit-note" className={`entryNote${invalid ? ' invalidScore' : ''}`} role="status">
+        {invalid ? (usingRemaining ? `Enter ${Math.max(0, remaining! - 180)}–${remaining} remaining.` : 'Enter a score from 0 to 180.')
+          : remainingText === '' ? 'Enter what is left after your visit.' : `${remaining} → ${remainingText} remaining · ${points} scored`}
+      </div> : null}
       {totalMode ? (
-          <div className="padGrid">
+        <>
+          <div className="padGrid" role="group" aria-label="Numeric keypad">
             {['1','2','3','4','5','6','7','8','9'].map((n) => (
-              <button key={n} className="padKey" onClick={() => setDigit(n)}>
+              <button key={n} type="button" className="padKey" onClick={() => updateInput(displayedText + n)}>
                 {n}
               </button>
             ))}
-            <button className="padKey padKeyAlt" onClick={() => setTotalText('')}>Clear</button>
-            <button className="padKey" onClick={() => setDigit('0')}>0</button>
-            <button className="padKey padKeyAlt" aria-label="Delete last digit" onClick={() => setTotalText(totalText.slice(0, -1))}>⌫</button>
+            <button type="button" className="padKey padKeyAlt" aria-label="Clear score" onClick={() => updateInput('')}>C</button>
+            <button type="button" className="padKey" onClick={() => updateInput(displayedText + '0')}>0</button>
+            <button type="button" className="padKey padKeyAlt" aria-label="Delete last digit" onClick={() => updateInput(displayedText.slice(0, -1))}>⌫</button>
           </div>
+          <div className="quickScores" role="group" aria-label="Common scores">
+            {quickScores.map((score) => <button key={score} type="button" className="btn quickScore" data-band={score >= 100 ? 'high' : score >= 60 ? 'mid' : 'low'}
+              aria-label={`Enter ${score} points`} onClick={() => { setEnterRemaining(false); setTotalText(String(score)) }}>{score}</button>)}
+          </div>
+        </>
       ) : <DartKeypad darts={darts} onChange={setDarts} revision={revision} reviewDarts={reviewDarts} />}
-      <button className="btn btnPrimary entrySubmit" onClick={onSubmit} disabled={!canSubmit || scoreInvalid || submitting}>{submitting ? 'Submitting…' : 'Submit visit'}</button>
+      <div className="matchEntryActions">
+        {menu?.undo ? <button type="button" className="btn" onClick={() => void menu.undo?.()} disabled={!canUndo} aria-label="Undo last visit"><Icon name="undo" /> Undo</button> : null}
+        {canEnterRemaining ? <button type="button" className="btn" aria-pressed={usingRemaining} onClick={() => {
+          setRemainingText('')
+          setEnterRemaining(!usingRemaining)
+        }}>Remaining</button> : null}
+        <button type="button" className="btn btnPrimary entrySubmit" onClick={submit} disabled={!canScore}>{submitting ? 'Scoring…' : 'Score'}</button>
+      </div>
     </fieldset>
   )
 }
@@ -1621,18 +1647,41 @@ function PlayerPanel({
   stats: PlayerStats | undefined
 }) {
   const ps = leg?.players?.find((x) => x.playerId === player.id)
-  const last = lastScoreForPlayer(leg?.turns ?? [], player.id)
-  const thrown = dartsThrownForPlayer(leg?.turns ?? [], player.id)
+  const remaining = ps?.remaining
+  const isX01 = settings?.gameType === 'X01'
+  const practice = settings?.gameType === 'PRACTICE'
+  const outRule: OutRule | null = isX01 ? (settings.doubleOut ? 'DOUBLE' : settings.masterOut ? 'MASTER' : 'ANY')
+    : practice && (settings.practiceMode === 'X01' || settings.practiceMode === 'RANDOM_CHECKOUT') ? 'DOUBLE' : null
+  const isIn = ps?.isIn
+  const checkout = useMemo(() => (
+    match?.status === 'LIVE' && outRule && isIn && remaining !== undefined && remaining >= (outRule === 'ANY' ? 1 : 2) && remaining <= (outRule === 'DOUBLE' ? 170 : 180)
+      ? suggestCheckout({ remaining, outRule })?.labels.map((label) => /^\d+$/.test(label) ? `S${label}` : label).join(' · ') : undefined
+  ), [match?.status, outRule, isIn, remaining])
+  const playerTurns = leg?.turns.filter((turn) => turn.playerId === player.id) ?? []
+  const recent = playerTurns.slice(-3)
+  const thrown = playerTurns.reduce((sum, turn) => sum + (Array.isArray(turn.input?.darts) ? turn.input.darts.length : 3), 0)
+  const legAverage = thrown > 0 ? playerTurns.reduce((sum, turn) => sum + turn.scoreTotal, 0) * 3 / thrown : null
+  const legWins = match?.settings.setsEnabled ? match.legsWonInCurrentSetByPlayerId?.[player.id] ?? 0 : stats?.legsWon ?? 0
 
   return (
     <article className="playerCard" data-current={isCurrent} aria-label={player.name}>
-      <div className="scoreCardHeader"><strong className="scoreName">{player.name}</strong>{isCurrent ? <span className="scoreTurn">Throwing</span> : null}</div>
-      <div className="playerBigNum">{ps?.remaining ?? '–'}</div>
+      <div className="scoreCardHeader"><span className="scoreIdentity"><span className="scoreAvatar" data-tone={player.orderIndex % 4}><NameMark name={player.name} /></span>
+        <strong className="scoreName" title={player.name}>{player.name}</strong></span>{isCurrent ? <span className="srOnly">Throwing</span> : null}</div>
       <div className="scoreMeta">
-        {match?.settings?.gameType === 'PRACTICE' ? <span>{stats?.dartsThrown ?? thrown} darts</span> : <span>{stats?.legsWon ?? 0} legs</span>}
-        {match?.settings?.setsEnabled ? <span>{stats?.setsWon ?? 0} sets</span> : null}
-        {settings?.gameType === 'X01' && settings.doubleIn && !ps?.isIn ? <span>Not in</span> : null}
-        <span>Last {last ?? '–'}</span>
+        {practice ? <span className="scoreChip">Darts <b>{stats?.dartsThrown ?? thrown}</b></span> : <span className="scoreChip">Legs <b>{legWins}</b></span>}
+        {match?.settings.setsEnabled ? <span className="scoreChip">Sets <b>{stats?.setsWon ?? 0}</b></span> : null}
+        {isX01 && settings.doubleIn && !isIn ? <span className="scoreChip">Not in</span> : null}
+      </div>
+      <div className="playerBigNum">{remaining ?? '–'}</div>
+      <div className="scoreCardDetails">
+        <div className="scoreRecents" aria-label="Last three visits">
+          {Array.from({ length: 3 - recent.length }, (_, index) => <span key={`empty-${index}`} aria-hidden="true" className="scoreChip">–</span>)}
+          {recent.map((turn) => <span key={turn.id} className="scoreChip" data-bust={turn.isBust} aria-label={turn.isBust ? 'Bust' : undefined}>{turn.isBust ? 'Bust' : turn.scoreTotal}</span>)}
+        </div>
+        {isX01 ? <div className="scoreAverages" aria-label="Three-dart averages">
+          <span>Leg <b>{legAverage?.toFixed(1) ?? '–'}</b></span><span>Match <b>{stats?.threeDartAvg?.toFixed(1) ?? '–'}</b></span>
+        </div> : null}
+        {outRule ? <div className="scoreCheckout">{checkout ? <span aria-label={`Checkout: ${checkout}`}>{checkout}</span> : null}</div> : null}
       </div>
     </article>
   )

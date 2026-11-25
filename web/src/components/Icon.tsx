@@ -9,6 +9,10 @@ const shapes = {
   plus: <path d="M12 5v14M5 12h14"/>,
   key: <><circle cx="8" cy="10" r="4"/><path d="m11 13 7 7 3-3-2-2-2 2m-1-5-2 2"/></>,
   menu: <><path d="M4 7h16M4 12h16M4 17h16"/></>,
+  sliders: <path d="M4 6h7m4 0h5M4 12h3m4 0h9M4 18h11m4 0h1M11 4v4m-4 2v4m8 2v4"/>,
+  volume: <><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></>,
+  mute: <><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 10 4 4m0-4-4 4"/></>,
+  undo: <path d="M9 5 4 10l5 5m-5-5h10a5 5 0 0 1 0 10h-2"/>,
   close: <path d="m6 6 12 12M18 6 6 18"/>,
 } as const
 

@@ -32,6 +32,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [uiDensity, setUiDensity] = useState<'spacious' | 'compact'>('spacious')
   const [hostSecret, setHostSecret] = useState<string | null>(null)
   const [scoringMenuTarget, setScoringMenuTarget] = useState<HTMLDivElement | null>(null)
+  const [undoing, setUndoing] = useState(false)
+  const undoPending = useRef(false)
   const menuRef = useRef<HTMLDialogElement>(null)
   const wakeLockRef = useRef<any>(null)
   const roomRoute = pathname.match(/^\/room\/([^/]+)\/(lobby|game)\/?$/i)
@@ -329,6 +331,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   async function undoLastTurn() {
+    if (undoPending.current) return
+    undoPending.current = true
+    setUndoing(true)
     try {
       if (!hostSecret) throw new Error('Host secret missing on this device')
       const socket = getSocket(serverUrl)
@@ -339,6 +344,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     } catch (e: any) {
       setToast(e?.message ?? 'Undo failed')
       setTimeout(() => setToast(null), 2500)
+    } finally {
+      undoPending.current = false
+      setUndoing(false)
     }
   }
 
@@ -355,7 +363,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <ScoringMenuContext.Provider value={{ target: scoringMenuTarget, open, show: () => setOpen(true) }}>
+    <ScoringMenuContext.Provider value={{ target: scoringMenuTarget, open, show: () => setOpen(true), undo: inGame && hostSecret ? undoLastTurn : null, undoing }}>
     <div className={`${inScoring ? 'gameShell' : 'appShell'}${showBottomNav ? ' withDock' : ''}`}>
       {!inScoring ? <header className="topbar">
         <div className="topbarContent">
@@ -381,7 +389,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div className="col">
               <div className="row spread"><span className="pill">Room {roomCode}</span><button className="btn" onClick={() => { void copyRoomCode(); setOpen(false) }}>Copy code</button></div>
               <div className="row">
-                {inGame && hostSecret ? <button className="btn" onClick={() => { void undoLastTurn(); setOpen(false) }}>Undo last turn</button> : null}
+                {inGame && hostSecret ? <button className="btn" disabled={undoing} onClick={() => { void undoLastTurn(); setOpen(false) }}>Undo last turn</button> : null}
                 <button className="btn" onClick={() => { void leaveRoom(); setOpen(false) }}>Leave room</button>
               </div>
             </div>

@@ -238,6 +238,7 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .scoringHeading { min-width: 0; }
 .scoringHeading h1 { margin: 0; font-size: clamp(17px, 2.5vw, 26px); line-height: 1.1; letter-spacing: -.025em; }
 .scoringHeading p { margin: 3px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.scoringHeaderActions { display: flex; gap: 6px; align-items: center; }
 .gameGrid { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr); gap: clamp(8px, 1.8vw, 26px); align-items: stretch; }
 .gameGrid[data-entry='true'] { grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); }
 .scoreboard { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -291,6 +292,64 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .padKey { padding: 4px; font-size: clamp(20px, 2.4vw, 32px); }
 .padKeyAlt { font-size: 13px; color: var(--muted); }
 .gameShell .toast { background: var(--panel2); border-color: var(--border); }
+
+/* Match scoreboard: keep the warm accents on the active player and scoring actions. */
+.matchGamePage {
+  --match-highlight: #d9a66c;
+  --match-outline: #bd8957;
+  --match-badge: #332a1e;
+  --match-score-button: #d6a16a;
+  --match-score-ink: #211911;
+}
+.scoringHeader[data-compact='true'] .scoringHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 9px; }
+.scoringHeader[data-compact='true'] .scoringHeading h1 { font-size: clamp(20px, 3.1vw, 36px); }
+.scoringHeader[data-compact='true'] .scoringHeading p { margin: 0; font-size: clamp(12px, 1.6vw, 17px); }
+.gameShell .scoreSound { width: 44px; padding: 0; background: var(--scoring-key); }
+.gameShell .scoreSound[aria-pressed='true'] { color: var(--match-highlight); background: var(--match-badge); border-color: #685034; }
+.matchGamePage .playerCard { grid-template-rows: auto auto minmax(min-content, 1fr) auto; gap: clamp(5px, 1vw, 12px); }
+.matchGamePage .playerCard[data-current='true'] { background: #222b23; border: 1px solid var(--match-outline); box-shadow: inset 0 3px var(--match-outline); }
+.matchGamePage .playerCard[data-current='true'] .scoreName { color: var(--match-highlight); }
+.scoreIdentity { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.scoreIdentity .scoreName { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.15; }
+.scoreAvatar .nameMark { width: clamp(29px, 4vw, 42px); height: clamp(29px, 4vw, 42px); background: var(--avatar-bg, #393149); color: var(--avatar-ink, #ead9ff); border: 0; }
+.scoreAvatar[data-tone='1'] { --avatar-bg: #243a51; --avatar-ink: #d4e9ff; }
+.scoreAvatar[data-tone='2'] { --avatar-bg: #483429; --avatar-ink: #ffe0bf; }
+.scoreAvatar[data-tone='3'] { --avatar-bg: #293d38; --avatar-ink: #d0ebe2; }
+.matchGamePage .playerBigNum { justify-self: center; text-align: center; }
+.scoreCardDetails { display: grid; justify-items: center; gap: 7px; }
+.scoreRecents { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.scoreChip { min-width: 25px; padding: 3px 6px; border-radius: 6px; background: var(--scoring-key); color: var(--muted); text-align: center; line-height: 1.25; }
+.scoreChip b, .scoreAverages b { color: var(--text); }
+.scoreRecents .scoreChip { color: var(--text); font-size: clamp(11px, 1.5vw, 18px); font-weight: 650; font-variant-numeric: tabular-nums; }
+.scoreRecents .scoreChip[data-bust='true'] { color: var(--bad); }
+.scoreAverages { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px 12px; text-align: center; color: var(--muted); font-size: clamp(11px, 1.25vw, 16px); }
+.scoreCheckout { min-height: 24px; }
+.scoreCheckout span { display: inline-block; padding: 3px 7px; border-radius: 6px; background: var(--match-badge); color: #edbf87; font-size: clamp(11px, 1.3vw, 16px); font-weight: 800; line-height: 1.25; }
+.matchTurnEntry { gap: clamp(5px, .8vw, 10px); }
+.matchTurnEntry .entryBar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, .64fr) auto; gap: 6px; }
+.currentScorer { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: clamp(12px, 1.75vw, 20px); }
+.currentScorer strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scorerDot { width: 8px; height: 8px; border-radius: 50%; background: var(--match-highlight); flex: none; }
+.matchTurnEntry .entryDisplay { min-height: 44px; justify-content: center; padding: 0 4px; background: var(--scoring-key); }
+.matchTurnEntry .entryDisplay[data-remaining='true'] { border-color: var(--match-outline); }
+.matchTurnEntry .entryScore { font-size: clamp(23px, 3.5vw, 42px); width: 100%; min-width: 0; text-align: center; }
+.entryModeToggle { display: flex; padding-inline: 2px; border-radius: 10px; background: var(--scoring-key); }
+.gameShell .entryModeToggle .btn { border-color: transparent; color: var(--muted); padding-inline: clamp(6px, 1vw, 14px); white-space: nowrap; }
+.gameShell .entryModeToggle .btn[aria-pressed='true'] { background: #363b35; border-color: #646b62; color: var(--text); }
+.entryNote { color: var(--muted); font-size: 12px; }
+.entryNote.invalidScore { color: var(--bad); }
+.quickScores { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+.quickScores .btn { padding: 4px 2px; background: var(--bg1); font-size: clamp(13px, 1.65vw, 20px); }
+.quickScore[data-band='mid'] { color: #9cbca8; }
+.quickScore[data-band='high'] { color: #ebbd87; }
+.matchEntryActions { display: flex; gap: 5px; }
+.matchEntryActions .btn { flex: 1 1 0; min-width: 0; padding-inline: 4px; }
+.matchEntryActions .btn[aria-pressed='true'] { border-color: var(--match-outline); color: var(--match-highlight); }
+.matchGamePage .matchEntryActions .entrySubmit { background: var(--match-score-button); border-color: var(--match-score-button); color: var(--match-score-ink); }
+@media (hover: hover) {
+  .gameShell .entryModeToggle .btn[aria-pressed='true']:not(:disabled):hover { background: #484f47; color: var(--text); border-color: #747d71; }
+  .matchGamePage .matchEntryActions .entrySubmit:not(:disabled):hover { background: #e6b889; border-color: #e6b889; }
+}
 
 /* Horizontally scrollable tournament bracket */
 .tourneyBracketBoard { display: flex; gap: 34px; max-width: 100%; overflow-x: auto; padding: 2px 6px 12px; }
@@ -364,7 +423,10 @@ input[type='checkbox'] { accent-color: var(--cta); }
   .scoringMenuTrigger { padding-inline: 9px; }
   .scoreboardLabel { display: none; }
   .entryBar .btn { padding-inline: 8px; font-size: 12px; }
-  .gamePlayers:not([data-solo='true']) .scoreCardHeader { min-height: 40px; align-content: start; }
+  .scoringHeader[data-compact='true'] .scoringMenuTrigger { width: 44px; padding: 0; }
+  .scoringHeader[data-compact='true'] .scoringMenuTrigger > span { display: none; }
+  .matchGamePage .scoreCardDetails { gap: 4px; }
+  .matchGamePage .playerCard:not([data-current='true']) { border-top-width: 2px; }
 }
 
 @media (max-width: 880px) and (max-height: 650px) {
@@ -374,11 +436,6 @@ input[type='checkbox'] { accent-color: var(--cta); }
   .turnEntry { gap: 5px; }
   .padGrid { gap: 4px; }
   .entryDisplay { min-height: 40px; padding-block: 1px; }
-}
-
-@media (max-width: 520px) and (max-height: 650px) {
-  .gameGrid[data-entry='true'] .gamePlayers:not([data-solo='true']) .scoreCardHeader { min-height: 20px; }
-  .gameGrid[data-entry='true'] .gamePlayers:not([data-solo='true']) .scoreTurn { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
