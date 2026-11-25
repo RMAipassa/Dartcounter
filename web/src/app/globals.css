@@ -157,11 +157,59 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .setupFooter { padding-top: 14px; border-top: 1px solid var(--border); }
 .setupCode { letter-spacing: .16em; font-weight: 760; }
 .formError { margin: 0; color: var(--bad); font-size: 14px; }
-.lobbyGrid, .gameGrid { align-items: start; }
+.gameGrid { align-items: start; }
 .lobbyStartPanel { display: grid; grid-template-columns: minmax(0, 280px) auto; justify-content: start; align-items: end; gap: var(--gap); padding: 12px 16px; }
 .lobbyStartPanel .btn { min-height: 46px; }
-.lobbyAddPlayerRow { flex-wrap: nowrap; }
 .lobbyEmpty { padding: clamp(20px, 4vw, 38px); }
+
+/* Account and lobby overviews */
+.overviewPage { max-width: 980px; margin-inline: auto; gap: 16px; }
+.overviewHero { padding: clamp(16px, 3vw, 26px); display: flex; align-items: center; flex-wrap: wrap; gap: 14px; background: linear-gradient(120deg, var(--panel), var(--panel2)); }
+.overviewIdentity { flex: 1 1 190px; min-width: 0; }
+.overviewHero .eyebrow { margin-bottom: 5px; }
+.overviewHero .title { font-size: clamp(30px, 5vw, 43px); }
+.overviewHero .subtitle { margin-top: 5px; overflow-wrap: anywhere; }
+.overviewHero > .nameMark { width: clamp(44px, 8vw, 62px); height: clamp(44px, 8vw, 62px); font-size: clamp(15px, 3vw, 22px); }
+.roomCodeBtn { display: grid; gap: 3px; justify-items: start; min-width: 108px; text-align: left; }
+.roomCodeBtn small { color: var(--muted); font-size: 11px; }
+.roomCodeBtn strong { font-family: ui-monospace, monospace; font-size: 16px; letter-spacing: .12em; }
+.sectionTabsAnchor { height: 0; margin-top: -16px; }
+.sectionTabs { position: sticky; top: calc(73px + env(safe-area-inset-top)); z-index: 15; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 4px; background: var(--bg1); border: 1px solid var(--border); border-radius: 12px; }
+.sectionTabs [role='tab'] { min-width: 0; min-height: 44px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 700; font-size: 14px; padding: 5px 3px; cursor: pointer; }
+.sectionTabs [role='tab']:is(:hover, [aria-selected='true']) { background: var(--panel2); color: var(--text); }
+.sectionTabs [role='tab'][aria-selected='true'] { border-color: var(--active-border); box-shadow: inset 0 -2px var(--good); }
+.sectionTabCount { display: inline-block; margin-inline-start: 4px; padding-inline: 4px; border-radius: 8px; background: var(--cta); color: var(--on-cta); font-size: 10px; line-height: 16px; vertical-align: 1px; }
+.sectionPanel[hidden] { display: none; }
+.sectionCard { padding: clamp(14px, 2.5vw, 23px); }
+.sectionCard > .sectionTitle { margin-bottom: 2px; }
+.sectionIntro p, .sectionMuted { margin: 4px 0 0; }
+.sectionSubheading { margin: 0; font-size: 15px; color: var(--text); }
+.sectionFold > summary { padding: 2px 0; cursor: pointer; font-weight: 730; min-height: 44px; align-content: center; }
+.sectionFold[open] > summary { margin-bottom: 8px; }
+.sectionActionBar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.sectionActionBar .input { flex: 1 1 160px; }
+.sectionActionBar .btn { flex-shrink: 0; }
+.overviewFacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin: 0; }
+.overviewFact { display: flex; flex-direction: column-reverse; gap: 3px; padding: clamp(9px, 2vw, 16px); border: 1px solid var(--border); border-radius: 11px; background: var(--bg1); min-width: 0; }
+.overviewFact dt { color: var(--muted); font-size: 12px; line-height: 1.3; }
+.overviewFact dd { margin: 0; font-weight: 800; font-size: clamp(19px, 3.6vw, 30px); letter-spacing: -.03em; overflow-wrap: anywhere; }
+.nameList { display: grid; }
+.nameRow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.nameRow:last-child { border-bottom: 0; }
+.nameMark { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--active-border); border-radius: 9px; background: var(--active-bg); color: var(--good); font-weight: 800; font-size: 13px; }
+.nameRowText { flex: 1 1 125px; min-width: 0; }
+.nameRowTitle { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.nameRowTitle strong { font-size: 16px; line-height: 1.2; overflow-wrap: anywhere; }
+.nameRowActions { display: flex; flex-wrap: wrap; gap: 6px; }
+.nameTag { color: var(--good); font-size: 12px; font-weight: 690; }
+.nameTagMuted { color: var(--muted); }
+.settingsField { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--muted); font-size: 13px; font-weight: 650; }
+.settingsOptions { display: flex; flex-wrap: wrap; gap: 7px; }
+.settingsOptions .btn { flex: 0 0 auto; }
+.settingToggle { min-height: 44px; display: flex; align-items: center; gap: 9px; color: var(--text); }
+.settingToggle input { width: 18px; height: 18px; }
+.lobbyFormat { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; margin-top: 6px; font-size: 13px; color: var(--muted); }
+.lobbyFormat strong { color: var(--text); }
 
 /* Scoreboard and scoring */
 .gamePage { gap: 16px; }
@@ -242,7 +290,7 @@ input[type='checkbox'] { accent-color: var(--cta); }
   .mobileDockItem .navBadge { position: absolute; top: 3px; left: calc(50% + 6px); }
   .mobileDockItem[aria-current='page'] { color: var(--good); background: var(--active-bg); }
   .grid3, .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .lobbyGrid { grid-template-columns: minmax(0, 1fr); }
+  .sectionTabs { top: calc(61px + env(safe-area-inset-top)); }
   .gameGrid { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -272,6 +320,14 @@ input[type='checkbox'] { accent-color: var(--cta); }
   .setupFooter .btn { flex: 1 1 120px; }
   .lobbyStartPanel { grid-template-columns: minmax(0, 1fr) auto; }
   .input, .select { font-size: 16px; }
+  .overviewPage { gap: 12px; }
+  .sectionTabsAnchor { margin-top: -12px; }
+  .sectionTabs { top: calc(56px + env(safe-area-inset-top)); }
+  .sectionTabs [role='tab'] { font-size: 12px; }
+  .overviewHero { gap: 10px; }
+  .roomCodeBtn { min-width: 0; padding-inline: 9px; }
+  .overviewHero:has(.roomCodeBtn) .overviewIdentity { flex-basis: 140px; }
+  .nameRowActions .btn { padding-inline: 10px; }
 }
 
 @media (max-width: 520px) {

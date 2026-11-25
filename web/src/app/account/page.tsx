@@ -1,6 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import NameRow, { NameMark } from '@/components/NameRow'
+import { SectionPanel, SectionTabs } from '@/components/SectionTabs'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
 
@@ -186,6 +189,8 @@ type IncomingRoomInvite = {
   expiresAt: number
 }
 
+type AccountSection = 'overview' | 'friends' | 'stats' | 'boards'
+
 export default function AccountPage() {
   const serverUrl = useMemo(() => getServerUrl(), [])
   const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN')
@@ -219,6 +224,24 @@ export default function AccountPage() {
   const [incomingInvites, setIncomingInvites] = useState<IncomingRoomInvite[]>([])
   const [uiDensity, setUiDensity] = useState<'spacious' | 'compact'>('spacious')
   const [statsModeView, setStatsModeView] = useState<'X01' | 'AROUND'>('X01')
+  const [section, setSection] = useState<AccountSection>('overview')
+
+  useEffect(() => {
+    function restoreSection() {
+      const tab = window.location.hash.slice(1)
+      setSection(tab === 'friends' || tab === 'stats' || tab === 'boards' ? tab : 'overview')
+    }
+    restoreSection()
+    window.addEventListener('hashchange', restoreSection)
+    return () => window.removeEventListener('hashchange', restoreSection)
+  }, [])
+
+  function selectSection(tab: AccountSection) {
+    setSection(tab)
+    const url = new URL(window.location.href)
+    url.hash = tab === 'overview' ? '' : tab
+    window.history.replaceState(null, '', url)
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -628,62 +651,66 @@ export default function AccountPage() {
     window.dispatchEvent(new Event('dc:uiDensityChanged'))
   }
 
-  return (
-    <div className="col" style={{ gap: 16 }}>
-      <div className="card" style={{ padding: 16 }}>
-        <h1 className="title">Account</h1>
-        <p className="subtitle">Sign in to link personal autodarts devices in upcoming updates.</p>
-      </div>
+  const requestCount = (friends?.incoming.length ?? 0) + incomingChallenges.length + incomingInvites.length
+  const resetting = Boolean(!me && resetToken)
+  const currentSection = (!me && section === 'friends') || resetting ? 'overview' : section
+  const tabs: Array<{ id: AccountSection; label: string; count?: number }> = [
+    { id: 'overview', label: me ? 'Overview' : 'Sign in' },
+    ...(me ? [{ id: 'friends' as const, label: 'Friends', count: requestCount }] : []),
+    { id: 'stats', label: me ? 'Stats' : 'Records' },
+    { id: 'boards', label: 'Boards' },
+  ]
 
-      {me ? (
-        <div className="card" style={{ padding: 16 }}>
-          <div className="col">
-            <span className="pill">Signed in</span>
-            <div className="row" style={{ flexWrap: 'wrap' }}>
-              <span className="pill">Name: {me.displayName}</span>
-              <span className="pill">Email: {me.email}</span>
-            </div>
-            <div className="col">
-              <label className="help">UI density</label>
-              <div className="row" style={{ flexWrap: 'wrap' }}>
-                <button className={uiDensity === 'spacious' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => applyUiDensity('spacious')}>
-                  Spacious
-                </button>
-                <button className={uiDensity === 'compact' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => applyUiDensity('compact')}>
-                  Compact
-                </button>
-              </div>
-            </div>
-            <div className="col">
-              <label className="help">Personal autodarts device id</label>
+  return (
+    <main className="col overviewPage">
+      <header className="card overviewHero">
+        {me ? <NameMark name={me.displayName} /> : null}
+        <div className="overviewIdentity">
+          <span className="eyebrow">{me ? 'Your account' : 'Player profile'}</span>
+          <h1 className="title">{me?.displayName ?? 'Account'}</h1>
+          <p className="subtitle">{me?.email ?? 'Sign in to keep your stats, play with friends, and connect a board.'}</p>
+        </div>
+      </header>
+
+      {!resetting ? <SectionTabs group="account" label="Account sections" tabs={tabs} active={currentSection} onChange={selectSection} /> : null}
+
+      <SectionPanel group="account" id="boards" active={currentSection}>
+        <section className="card sectionCard col">
+          <div className="row spread"><h2 className="sectionTitle">Your Autodarts board</h2><span className="pill">{me?.autodartsDeviceId ? 'Board saved' : 'No board linked'}</span></div>
+          {me ? <>
+            <label className="settingsField">Board ID
               <input
                 className="input"
                 value={autodartsDeviceIdInput}
                 onChange={(e) => setAutodartsDeviceIdInput(e.target.value)}
-                placeholder="e.g. board-home-ruben"
+                placeholder="e.g. board-home"
               />
-              <div className="help">This board will auto-bind when it is your turn in live games.</div>
-              <div className="row">
-                <button className="btn" disabled={busy} onClick={saveAutodartsDevice}>
-                  Save autodarts device
-                </button>
-                {me.autodartsDeviceId ? <span className="pill">Current: {me.autodartsDeviceId}</span> : <span className="pill">Current: none</span>}
-              </div>
-            </div>
-            <div className="col">
-              <label className="help">Personal autodarts credentials (optional override)</label>
+            </label>
+            <p className="help sectionMuted">Your board connects automatically when it’s your turn to throw.</p>
+            <div className="row"><button className="btn btnPrimary" disabled={busy} onClick={saveAutodartsDevice}>Save board</button><Link className="btn" href="/autodarts">Setup guide</Link></div>
+          </> : <><p className="help sectionMuted">Sign in to link a personal board.</p><div className="row"><button className="btn btnPrimary" onClick={() => selectSection('overview')}>Sign in</button><Link className="btn" href="/autodarts">Setup guide</Link></div></>}
+        </section>
+        {me ? <details className="card sectionCard sectionFold"><summary>Advanced Autodarts credentials</summary><div className="col">
+              <label className="settingsField">Access token
               <input
                 className="input"
+                type="password"
                 value={autodartsTokenInput}
                 onChange={(e) => setAutodartsTokenInput(e.target.value)}
-                placeholder="Token (or use email/password below)"
+                placeholder="Or enter an email and password"
               />
+              </label>
+              <div className="grid2">
+              <label className="settingsField">Autodarts email
               <input
                 className="input"
+                type="email"
                 value={autodartsEmailInput}
                 onChange={(e) => setAutodartsEmailInput(e.target.value)}
                 placeholder="Autodarts email"
               />
+              </label>
+              <label className="settingsField">Autodarts password
               <input
                 className="input"
                 type="password"
@@ -691,223 +718,190 @@ export default function AccountPage() {
                 onChange={(e) => setAutodartsPasswordInput(e.target.value)}
                 placeholder="Autodarts password"
               />
+              </label>
+              <label className="settingsField">API base override
               <input
                 className="input"
                 value={autodartsApiBaseInput}
                 onChange={(e) => setAutodartsApiBaseInput(e.target.value)}
                 placeholder="Optional API base override"
               />
+              </label>
+              <label className="settingsField">WebSocket base override
               <input
                 className="input"
                 value={autodartsWsBaseInput}
                 onChange={(e) => setAutodartsWsBaseInput(e.target.value)}
                 placeholder="Optional WS base override"
               />
+              </label>
+              </div>
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 <button className="btn" disabled={busy} onClick={() => void saveAutodartsCredentials(false)}>
                   Save credentials
                 </button>
-                <button className="btn" disabled={busy} onClick={() => void saveAutodartsCredentials(true)}>
+                <button className="btn" disabled={busy || !me.hasAutodartsCredentials} onClick={() => void saveAutodartsCredentials(true)}>
                   Clear credentials
                 </button>
                 <span className="pill">Saved: {me.hasAutodartsCredentials ? 'yes' : 'no'}</span>
               </div>
               <div className="help">Credentials are stored on this server and used for your personal board binding.</div>
-            </div>
-            <button className="btn" disabled={busy} onClick={logout}>
-              Sign out
-            </button>
+        </div></details> : null}
+        <details className="card sectionCard sectionFold"><summary>Bridge diagnostics</summary>
+          <div className="col">
+            <div className="row"><button className="btn" disabled={busy} onClick={() => void refreshBridgeHealth(serverUrl, setBridgeHealth)}>Refresh bridge</button></div>
+            {bridgeHealth ? <div className="row">
+              <span className="pill">{bridgeHealth.reachable ? 'Reachable' : 'Not reachable'}</span><span className="pill">Latency: {bridgeHealth.latencyMs} ms</span>
+              <span className="pill">HTTP: {bridgeHealth.status ?? '–'}</span><span className="pill">Mode: {bridgeHealth.health?.mode ?? '–'}</span>
+              <span className="pill">Sessions: {bridgeHealth.health?.sessions ?? '–'}</span>
+              {bridgeHealth.error ? <span className="pill" style={{ color: 'var(--bad)' }}>{bridgeHealth.error}</span> : null}
+            </div> : <p className="help sectionMuted">No bridge status loaded yet.</p>}
           </div>
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 16 }}>
-          <div className="row">
-            <button className={mode === 'LOGIN' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setMode('LOGIN')}>
-              Login
-            </button>
-            <button className={mode === 'REGISTER' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setMode('REGISTER')}>
-              Register
-            </button>
-            <button className={forgotMode ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setForgotMode((v) => !v)}>
-              Forgot password
-            </button>
-          </div>
+        </details>
+      </SectionPanel>
 
+      <SectionPanel group="account" id="overview" active={currentSection} labelledBy={resetting ? 'account-reset-heading' : undefined}>
+      {me ? <>
+        <section className="card sectionCard col">
+          <div className="row spread"><h2 className="sectionTitle">X01 at a glance</h2><button className="btn" onClick={() => selectSection('stats')}>View stats</button></div>
+          <FactTiles facts={[
+            ['Games played', stats?.allTime.totalGames ?? '–'], ['Wins', stats?.allTime.wins ?? '–'], ['3-dart average', stats?.allTime.threeDartAvg ?? '–'],
+          ]} />
+          {requestCount > 0 ? <div className="row"><button className="btn btnPrimary" onClick={() => selectSection('friends')}>{requestCount} pending {requestCount === 1 ? 'request' : 'requests'}</button></div> : null}
+        </section>
+        <section className="card sectionCard col">
+          <h2 className="sectionTitle">Appearance</h2>
+          <div className="row" role="group" aria-label="Layout density">
+            <button className="btn" aria-pressed={uiDensity === 'spacious'} disabled={busy} onClick={() => applyUiDensity('spacious')}>Spacious</button>
+            <button className="btn" aria-pressed={uiDensity === 'compact'} disabled={busy} onClick={() => applyUiDensity('compact')}>Compact</button>
+          </div>
+        </section>
+        <div className="row"><button className="btn" disabled={busy} onClick={logout}>Sign out</button></div>
+      </> : (
+        <section className="card sectionCard col">
           {resetToken ? (
-            <div className="col" style={{ marginTop: 12 }}>
-              <label className="help">New password</label>
+            <form className="col" onSubmit={(event) => { event.preventDefault(); if (!busy) void submitResetPassword() }}>
+              <h2 className="sectionTitle" id="account-reset-heading">Reset password</h2>
+              <label className="settingsField">New password
               <input
                 className="input"
                 type="password"
                 value={resetPassword}
                 onChange={(e) => setResetPassword(e.target.value)}
                 placeholder="At least 8 characters"
+                autoComplete="new-password" minLength={8} required
               />
-              <label className="help">Confirm new password</label>
+              </label>
+              <label className="settingsField">Confirm new password
               <input
                 className="input"
                 type="password"
                 value={resetPasswordConfirm}
                 onChange={(e) => setResetPasswordConfirm(e.target.value)}
                 placeholder="Repeat your new password"
+                autoComplete="new-password" minLength={8} required
               />
-              <button className="btn btnPrimary" disabled={busy || resetPassword.length < 8 || resetPasswordConfirm.length < 8} onClick={submitResetPassword}>
+              </label>
+              <button className="btn btnPrimary" type="submit" disabled={busy || resetPassword.length < 8 || resetPasswordConfirm.length < 8}>
                 {busy ? 'Working...' : 'Reset password'}
               </button>
               {resetMessage ? <div className="help">{resetMessage}</div> : null}
-            </div>
+            </form>
           ) : forgotMode ? (
-            <div className="col" style={{ marginTop: 12 }}>
-              <label className="help">Account email</label>
-              <input className="input" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="name@example.com" />
-              <button className="btn btnPrimary" disabled={busy || !forgotEmail.trim()} onClick={submitForgotPassword}>
-                {busy ? 'Working...' : 'Send reset link'}
-              </button>
+            <form className="col" onSubmit={(event) => { event.preventDefault(); if (!busy && forgotEmail.trim()) void submitForgotPassword() }}>
+              <h2 className="sectionTitle">Forgot password</h2>
+              <label className="settingsField">Account email
+                <input type="email" className="input" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" required />
+              </label>
+              <div className="row"><button className="btn btnPrimary" type="submit" disabled={busy || !forgotEmail.trim()}>{busy ? 'Working...' : 'Send reset link'}</button>
+                <button className="btn" type="button" onClick={() => setForgotMode(false)}>Back to sign in</button></div>
               {forgotMessage ? <div className="help">{forgotMessage}</div> : null}
-            </div>
+            </form>
           ) : (
-            <div className="col" style={{ marginTop: 12 }}>
-              <label className="help">Email</label>
-              <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
-
-              {mode === 'REGISTER' ? (
-                <>
-                  <label className="help">Display name</label>
-                  <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ruben" />
-                </>
-              ) : null}
-
-              <label className="help">Password</label>
-              <input
-                className="input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-              />
-
-              {mode === 'LOGIN' ? (
-                <label className="pill" style={{ cursor: 'pointer' }}>
-                  <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
-                  Remember me
-                </label>
-              ) : null}
-
-              <button className="btn btnPrimary" disabled={busy || !email.trim() || !password} onClick={submit}>
-                {busy ? 'Working...' : mode === 'LOGIN' ? 'Sign in' : 'Create account'}
-              </button>
-            </div>
+            <form className="col" onSubmit={(event) => { event.preventDefault(); if (!busy && email.trim() && password) void submit() }}>
+              <div className="row spread"><h2 className="sectionTitle">{mode === 'LOGIN' ? 'Sign in' : 'Create account'}</h2>
+                <button type="button" className="btn" disabled={busy} onClick={() => setMode(mode === 'LOGIN' ? 'REGISTER' : 'LOGIN')}>{mode === 'LOGIN' ? 'Register' : 'Back to sign in'}</button>
+              </div>
+              <label className="settingsField">Email
+                <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="email" required />
+              </label>
+              {mode === 'REGISTER' ? <label className="settingsField">Display name
+                <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} autoComplete="nickname" maxLength={32} required />
+              </label> : null}
+              <label className="settingsField">Password
+                <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'LOGIN' ? 'current-password' : 'new-password'} minLength={mode === 'REGISTER' ? 8 : undefined} required />
+              </label>
+              {mode === 'LOGIN' ? <label className="settingToggle"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} /> Remember me</label> : null}
+              <div className="row">
+                <button className="btn btnPrimary" type="submit" disabled={busy || !email.trim() || !password}>{busy ? 'Working...' : mode === 'LOGIN' ? 'Sign in' : 'Create account'}</button>
+                {mode === 'LOGIN' ? <button className="btn" type="button" disabled={busy} onClick={() => setForgotMode(true)}>Forgot password</button> : null}
+              </div>
+            </form>
           )}
-        </div>
+        </section>
       )}
+      </SectionPanel>
 
       {me ? (
-        <div className="card" style={{ padding: 16 }}>
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: 16 }}>Friends</div>
-            <button className="btn" disabled={busy} onClick={() => void refreshFriends(serverUrl, setFriends)}>
-              Refresh friends
-            </button>
-          </div>
-
-          <div className="col" style={{ marginTop: 10 }}>
-            <label className="help">Add friend by email or display name</label>
-            <div className="row" style={{ flexWrap: 'wrap' }}>
-              <input
-                className="input"
-                value={friendIdentityInput}
-                onChange={(e) => setFriendIdentityInput(e.target.value)}
-                placeholder="friend@example.com or Ruben"
-              />
-              <button className="btn" disabled={busy || !friendIdentityInput.trim()} onClick={sendFriendRequest}>
-                Send request
-              </button>
+        <SectionPanel group="account" id="friends" active={currentSection}>
+          {requestCount > 0 ? <section className="card sectionCard col">
+            <h2 className="sectionTitle">Requests &amp; invites</h2>
+            <div className="nameList">
+              {friends?.incoming.map((f) => <NameRow key={`friend-${f.user.userId}`} name={f.user.displayName} detail={`Friend request · ${f.user.email}`} actions={<>
+                <button className="btn btnPrimary" disabled={busy} onClick={() => void respondFriend(f.user.userId, true)}>Accept</button>
+                <button className="btn" disabled={busy} onClick={() => void respondFriend(f.user.userId, false)}>Decline</button>
+              </>} />)}
+              {incomingChallenges.map((c) => <NameRow key={`challenge-${c.challengeId}`} name={c.from.displayName} detail={`Challenge · expires ${new Date(c.expiresAt).toLocaleTimeString()}`} actions={<>
+                <button className="btn btnPrimary" disabled={busy} onClick={() => void respondChallenge(c.challengeId, true)}>Accept challenge</button>
+                <button className="btn" disabled={busy} onClick={() => void respondChallenge(c.challengeId, false)}>Decline</button>
+              </>} />)}
+              {incomingInvites.map((inv) => <NameRow key={`invite-${inv.inviteId}`} name={inv.from.displayName} detail={`Lobby invite · ${inv.roomTitle ? `${inv.roomTitle} · ` : ''}${inv.roomCode}`} actions={<>
+                <button className="btn btnPrimary" disabled={busy} onClick={() => void respondRoomInvite(inv.inviteId, true)}>Join lobby</button>
+                <button className="btn" disabled={busy} onClick={() => void respondRoomInvite(inv.inviteId, false)}>Decline</button>
+              </>} />)}
             </div>
-          </div>
-
-          <div className="col" style={{ marginTop: 12 }}>
-            <div className="help">Friends</div>
-            {(friends?.friends ?? []).length === 0 ? <span className="pill">No friends yet</span> : null}
-            {(friends?.friends ?? []).map((f) => (
-              <div key={f.user.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                <span className="pill">{f.user.displayName}</span>
-                <span className="pill">{f.user.email}</span>
-                <span className="pill" style={{ color: f.online ? 'var(--good)' : 'var(--muted)' }}>{f.online ? 'online' : 'offline'}</span>
-                <button className="btn" disabled={busy} onClick={() => void challengeFriend(f.user.userId)}>
-                  {f.online ? 'Challenge' : 'Challenge (offline)'}
-                </button>
-                <button className="btn" disabled={busy} onClick={() => void removeFriendship(f.user.userId)}>
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <div className="col" style={{ marginTop: 12 }}>
-            <div className="help">Incoming requests</div>
-            {(friends?.incoming ?? []).length === 0 ? <span className="pill">None</span> : null}
-            {(friends?.incoming ?? []).map((f) => (
-              <div key={f.user.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                <span className="pill">{f.user.displayName}</span>
-                <span className="pill">{f.user.email}</span>
-                <button className="btn" disabled={busy} onClick={() => void respondFriend(f.user.userId, true)}>
-                  Accept
-                </button>
-                <button className="btn" disabled={busy} onClick={() => void respondFriend(f.user.userId, false)}>
-                  Decline
-                </button>
-              </div>
-            ))}
-
-            <div className="help" style={{ marginTop: 8 }}>Incoming challenges</div>
-            {incomingChallenges.length === 0 ? <span className="pill">None</span> : null}
-            {incomingChallenges.map((c) => (
-              <div key={c.challengeId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                <span className="pill">{c.from.displayName}</span>
-                <span className="pill">Expires: {new Date(c.expiresAt).toLocaleTimeString()}</span>
-                <button className="btn" disabled={busy} onClick={() => void respondChallenge(c.challengeId, true)}>
-                  Accept challenge
-                </button>
-                <button className="btn" disabled={busy} onClick={() => void respondChallenge(c.challengeId, false)}>
-                  Decline
-                </button>
-              </div>
-            ))}
-
-            <div className="help" style={{ marginTop: 8 }}>Incoming invites</div>
-            {incomingInvites.length === 0 ? <span className="pill">None</span> : null}
-            {incomingInvites.map((inv) => (
-              <div key={inv.inviteId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                <span className="pill">{inv.from.displayName}</span>
-                <span className="pill">Room: {inv.roomCode}</span>
-                {inv.roomTitle ? <span className="pill">{inv.roomTitle}</span> : null}
-                <button className="btn" disabled={busy} onClick={() => void respondRoomInvite(inv.inviteId, true)}>
-                  Join lobby
-                </button>
-                <button className="btn" disabled={busy} onClick={() => void respondRoomInvite(inv.inviteId, false)}>
-                  Decline
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <div className="col" style={{ marginTop: 12 }}>
-            <div className="help">Outgoing requests</div>
-            {(friends?.outgoing ?? []).length === 0 ? <span className="pill">None</span> : null}
-            {(friends?.outgoing ?? []).map((f) => (
-              <div key={f.user.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                <span className="pill">{f.user.displayName}</span>
-                <span className="pill">{f.user.email}</span>
-                <button className="btn" disabled={busy} onClick={() => void removeFriendship(f.user.userId)}>
-                  Cancel request
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+          </section> : null}
+          <section className="card sectionCard col">
+            <div className="row spread"><h2 className="sectionTitle">Your friends</h2><button className="btn" disabled={busy} onClick={() => void refreshFriends(serverUrl, setFriends)}>Refresh</button></div>
+            {friends?.friends.length ? <div className="nameList">{friends.friends.map((f) => <NameRow key={f.user.userId} name={f.user.displayName} detail={f.user.email}
+              badge={<span className={`nameTag${f.online ? '' : ' nameTagMuted'}`}>{f.online ? 'Online' : 'Offline'}</span>} actions={<>
+                <button className="btn" disabled={busy} onClick={() => void challengeFriend(f.user.userId)}>Challenge</button>
+                <button className="btn" disabled={busy} onClick={() => void removeFriendship(f.user.userId)}>Remove</button>
+              </>} />)}</div> : <p className="help sectionMuted">No friends to show yet.</p>}
+            <form className="col" onSubmit={(e) => { e.preventDefault(); if (!busy && friendIdentityInput.trim()) void sendFriendRequest() }}>
+              <label className="settingsField">Add a friend by name or email
+                <input className="input" value={friendIdentityInput} onChange={(e) => setFriendIdentityInput(e.target.value)} placeholder="Display name or email" />
+              </label>
+              <div className="row"><button className="btn btnPrimary" type="submit" disabled={busy || !friendIdentityInput.trim()}>Send request</button></div>
+            </form>
+          </section>
+          {friends?.outgoing.length ? <details className="card sectionCard sectionFold"><summary>Sent requests ({friends.outgoing.length})</summary>
+            <div className="nameList">{friends.outgoing.map((f) => <NameRow key={f.user.userId} name={f.user.displayName} detail={f.user.email}
+              actions={<button className="btn" disabled={busy} onClick={() => void removeFriendship(f.user.userId)}>Cancel request</button>} />)}</div>
+          </details> : null}
+        </SectionPanel>
       ) : null}
 
-      {stats ? (
+      <SectionPanel group="account" id="stats" active={currentSection}>
+      <section className="card sectionCard col">
+        <div className="row spread">
+          <h2 className="sectionTitle">{me ? 'Match stats' : 'Global records'}</h2>
+          <div className="settingsOptions" role="group" aria-label="Stats game mode">
+            <button className="btn" aria-pressed={statsModeView === 'X01'} onClick={() => setStatsModeView('X01')}>X01</button>
+            <button className="btn" aria-pressed={statsModeView === 'AROUND'} onClick={() => setStatsModeView('AROUND')}>Around</button>
+          </div>
+        </div>
+        {stats && statsModeView === 'X01' ? <FactTiles facts={[
+          ['Games played', stats.allTime.totalGames], ['Win rate', percent(stats.allTime.winRate)], ['3-dart average', stats.allTime.threeDartAvg ?? '–'],
+        ]} /> : stats?.byMode?.AROUND && statsModeView === 'AROUND' ? <FactTiles facts={[
+          ['Games played', stats.byMode.AROUND.allTime.totalGames], ['Win rate', percent(stats.byMode.AROUND.allTime.winRate)], ['Darts thrown', stats.byMode.AROUND.allTime.dartsThrown],
+        ]} /> : me ? <p className="help sectionMuted">No personal stats available yet.</p> : null}
+        {!me && records ? <RecordRows records={records.byMode[statsModeView]} mode={statsModeView} /> : null}
+        {!me && !records ? <p className="help sectionMuted">No records available yet.</p> : null}
+      </section>
+
+      <details className="card sectionCard sectionFold" hidden={!stats}><summary>Detailed stats</summary>
+      {stats && statsModeView === 'X01' ? (
         <div className="grid2">
           <div className="card" style={{ padding: 16 }}>
             <div style={{ fontSize: 16, marginBottom: 8 }}>All-time stats</div>
@@ -939,9 +933,9 @@ export default function AccountPage() {
         </div>
       ) : null}
 
-      {stats && stats.history.length > 0 ? (
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 16, marginBottom: 8 }}>Recent games history</div>
+      {stats && statsModeView === 'X01' && stats.history.length > 0 ? (
+        <div className="col" style={{ marginTop: 12 }}>
+          <h3 className="sectionSubheading">Recent X01 games</h3>
           <div className="col">
             {stats.history.map((g, idx) => (
               <div key={`${g.roomCode}-${g.finishedAt}-${idx}`} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -957,7 +951,7 @@ export default function AccountPage() {
         </div>
       ) : null}
 
-      {stats?.byMode?.AROUND ? (
+      {statsModeView === 'AROUND' && stats?.byMode?.AROUND ? (
         <div className="grid2">
           <div className="card" style={{ padding: 16 }}>
             <div style={{ fontSize: 16, marginBottom: 8 }}>Around all-time</div>
@@ -980,9 +974,9 @@ export default function AccountPage() {
         </div>
       ) : null}
 
-      {stats?.byMode?.AROUND?.history?.length ? (
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 16, marginBottom: 8 }}>Around recent history</div>
+      {statsModeView === 'AROUND' && stats?.byMode?.AROUND?.history?.length ? (
+        <div className="col" style={{ marginTop: 12 }}>
+          <h3 className="sectionSubheading">Recent Around the Board games</h3>
           <div className="col">
             {stats.byMode.AROUND.history.map((g, idx) => (
               <div key={`${g.roomCode}-${g.finishedAt}-${idx}`} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -995,93 +989,45 @@ export default function AccountPage() {
           </div>
         </div>
       ) : null}
+      </details>
 
-      <div className="card" style={{ padding: 16 }}>
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 16 }}>Autodarts bridge status</div>
-          <button className="btn" disabled={busy} onClick={() => void refreshBridgeHealth(serverUrl, setBridgeHealth)}>
-            Refresh bridge
-          </button>
-        </div>
-        {bridgeHealth ? (
-          <div className="row" style={{ flexWrap: 'wrap', marginTop: 8 }}>
-            <span className="pill">Reachable: {bridgeHealth.reachable ? 'yes' : 'no'}</span>
-            <span className="pill">Latency: {bridgeHealth.latencyMs}ms</span>
-            <span className="pill">HTTP: {bridgeHealth.status ?? '-'}</span>
-            <span className="pill">Mode: {bridgeHealth.health?.mode ?? '-'}</span>
-            <span className="pill">Sessions: {bridgeHealth.health?.sessions ?? '-'}</span>
-            {bridgeHealth.error ? <span className="pill" style={{ color: 'var(--bad)' }}>Err: {bridgeHealth.error}</span> : null}
-          </div>
-        ) : (
-          <div className="help" style={{ marginTop: 8 }}>No bridge status loaded yet.</div>
-        )}
-      </div>
+      {me && records ? <details className="card sectionCard sectionFold"><summary>Global records</summary><RecordRows records={records.byMode[statsModeView]} mode={statsModeView} /></details> : null}
+      {me ? <details className="card sectionCard sectionFold"><summary>Friends leaderboard</summary><div className="col">
+        <div className="row"><button className="btn" disabled={busy} onClick={() => void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard, statsModeView)}>Refresh leaderboard</button></div>
+        {friendsLeaderboard.length ? <div className="nameList">{friendsLeaderboard.map((row) => {
+          const { allTime, lastTen } = modeStats(row, statsModeView)
+          return <NameRow key={row.userId} name={row.displayName} badge={row.isYou ? <span className="nameTag">You</span> : null}
+            detail={<div className="col" style={{ gap: 2 }}>
+              <span>All time: {allTime.wins}/{allTime.losses} W/L · {statsModeView === 'X01' ? `${allTime.threeDartAvg ?? '–'} avg · ${allTime.highestCheckout ?? '–'} high checkout` : `${allTime.dartsThrown ?? '–'} darts`}</span>
+              <span>Last 10: {lastTen.wins}/{lastTen.losses} W/L · {statsModeView === 'X01' ? `${lastTen.threeDartAvg ?? '–'} avg` : `${lastTen.dartsThrown ?? '–'} darts`}</span>
+            </div>} />
+        })}</div> : <p className="help sectionMuted">No friend stats yet.</p>}
+      </div></details> : null}
+      </SectionPanel>
 
-      {records ? (
-        <div className="card" style={{ padding: 16 }}>
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 16 }}>Global records</div>
-            <div className="row" style={{ gap: 8 }}>
-              <button className={statsModeView === 'X01' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setStatsModeView('X01')}>
-                X01
-              </button>
-              <button className={statsModeView === 'AROUND' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setStatsModeView('AROUND')}>
-                Around
-              </button>
-            </div>
-          </div>
-          <div className="help">All time</div>
-          <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
-            <span className="pill">Most wins: {recordLabel(records.byMode[statsModeView].allTime.mostWins)}</span>
-            <span className="pill">Highest checkout: {recordLabel(records.byMode[statsModeView].allTime.highestCheckout)}</span>
-            <span className="pill">Highest score: {recordLabel(records.byMode[statsModeView].allTime.highestScore)}</span>
-            <span className="pill">Best avg: {recordLabel(records.byMode[statsModeView].allTime.bestThreeDartAverage)}</span>
-          </div>
-          <div className="help" style={{ marginTop: 10 }}>Last 10 games</div>
-          <div className="row" style={{ flexWrap: 'wrap', marginTop: 6 }}>
-            <span className="pill">Most wins: {recordLabel(records.byMode[statsModeView].lastTen.mostWins)}</span>
-            <span className="pill">Highest checkout: {recordLabel(records.byMode[statsModeView].lastTen.highestCheckout)}</span>
-            <span className="pill">Highest score: {recordLabel(records.byMode[statsModeView].lastTen.highestScore)}</span>
-            <span className="pill">Best avg: {recordLabel(records.byMode[statsModeView].lastTen.bestThreeDartAverage)}</span>
-          </div>
-        </div>
-      ) : null}
-
-      {me ? (
-        <div className="card" style={{ padding: 16 }}>
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: 16 }}>Friends leaderboard</div>
-            <button className="btn" disabled={busy} onClick={() => void refreshFriendsLeaderboard(serverUrl, setFriendsLeaderboard, statsModeView)}>
-              Refresh leaderboard
-            </button>
-          </div>
-          <div className="row" style={{ gap: 8, marginTop: 8 }}>
-            <button className={statsModeView === 'X01' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setStatsModeView('X01')}>
-              X01
-            </button>
-            <button className={statsModeView === 'AROUND' ? 'btn btnPrimary' : 'btn'} disabled={busy} onClick={() => setStatsModeView('AROUND')}>
-              Around
-            </button>
-          </div>
-          <div className="col" style={{ marginTop: 8 }}>
-            {friendsLeaderboard.length < 1 ? <span className="pill">No friend stats yet</span> : null}
-            {friendsLeaderboard.map((row) => (
-              <div key={row.userId} className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                <span className="pill" style={{ color: row.isYou ? 'var(--accent)' : 'var(--text)' }}>{row.isYou ? `${row.displayName} (You)` : row.displayName}</span>
-                <span className="pill">All-time W/L: {modeStats(row, statsModeView).allTime.wins}/{modeStats(row, statsModeView).allTime.losses}</span>
-                {statsModeView === 'X01' ? <span className="pill">All-time Avg: {modeStats(row, statsModeView).allTime.threeDartAvg ?? '-'}</span> : <span className="pill">All-time Darts: {modeStats(row, statsModeView).allTime.dartsThrown}</span>}
-                <span className="pill">Last10 W/L: {modeStats(row, statsModeView).lastTen.wins}/{modeStats(row, statsModeView).lastTen.losses}</span>
-                {statsModeView === 'X01' ? <span className="pill">Last10 Avg: {modeStats(row, statsModeView).lastTen.threeDartAvg ?? '-'}</span> : <span className="pill">Last10 Darts: {modeStats(row, statsModeView).lastTen.dartsThrown}</span>}
-                {statsModeView === 'X01' ? <span className="pill">Hi CO: {modeStats(row, statsModeView).allTime.highestCheckout ?? '-'}</span> : null}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {error ? <div className="toast">{error}</div> : null}
-    </div>
+      {error ? <div className="toast" role="status">{error}</div> : null}
+    </main>
   )
+}
+
+function FactTiles({ facts }: { facts: Array<[string, string | number]> }) {
+  return <dl className="overviewFacts">{facts.map(([label, value]) => <div className="overviewFact" key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+}
+
+function percent(value: number | null) {
+  return value === null ? '–' : `${value}%`
+}
+
+function RecordRows({ records, mode }: { records: GlobalRecords['byMode']['X01']; mode: 'X01' | 'AROUND' }) {
+  return <div className="grid2">{(['allTime', 'lastTen'] as const).map((period) => {
+    const rows = records[period]
+    return <div className="col" key={period}>
+      <h3 className="sectionSubheading">{period === 'allTime' ? 'All time' : 'Last 10 games'}</h3>
+      <div className="row"><span className="pill">Most wins: {recordLabel(rows.mostWins)}</span>
+        {mode === 'X01' ? <><span className="pill">Highest checkout: {recordLabel(rows.highestCheckout)}</span><span className="pill">Highest score: {recordLabel(rows.highestScore)}</span><span className="pill">Best average: {recordLabel(rows.bestThreeDartAverage)}</span></> : null}
+      </div>
+    </div>
+  })}</div>
 }
 
 async function refreshMe(
