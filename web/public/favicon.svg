@@ -1,9 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="24" fill="#111411"/>
-  <circle cx="64" cy="64" r="40" fill="none" stroke="#f2eee3" stroke-width="7"/>
-  <circle cx="64" cy="64" r="25" fill="none" stroke="#657065" stroke-width="3"/>
-  <path d="M64 27v74M27 64h74" stroke="#f2eee3" stroke-width="4"/>
-  <path d="M64 27v37H27" fill="none" stroke="#d9483b" stroke-width="4"/>
-  <circle cx="64" cy="64" r="8" fill="#d9483b" stroke="#111411" stroke-width="3"/>
-  <circle cx="64" cy="64" r="2.5" fill="#f2eee3"/>
+  <defs>
+    <linearGradient id="tile" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#263628"/>
+      <stop offset="1" stop-color="#111411"/>
+    </linearGradient>
+    <g id="segment">
+      <path d="M64 64 53.13 23.43a42 42 0 0 1 21.74 0Z" fill="#252a23"/>
+      <path d="M53.13 23.43a42 42 0 0 1 21.74 0l-1.29 4.83a37 37 0 0 0-19.16 0ZM57.53 39.85a25 25 0 0 1 12.94 0l-1.29 4.83a20 20 0 0 0-10.36 0Z" fill="#d9483b"/>
+    </g>
+  </defs>
+
+  <rect width="128" height="128" rx="25" fill="url(#tile)"/>
+  <circle cx="64" cy="64" r="48" fill="#101510" stroke="#526650" stroke-width="2"/>
+  <circle cx="64" cy="64" r="42" fill="#e4dcc7"/>
+  <g fill="none" stroke="#397950" stroke-width="5">
+    <circle cx="64" cy="64" r="39.5"/>
+    <circle cx="64" cy="64" r="22.5"/>
+  </g>
+  <use href="#segment"/>
+  <use href="#segment" transform="rotate(60 64 64)"/>
+  <use href="#segment" transform="rotate(120 64 64)"/>
+  <use href="#segment" transform="rotate(180 64 64)"/>
+  <use href="#segment" transform="rotate(240 64 64)"/>
+  <use href="#segment" transform="rotate(300 64 64)"/>
+  <circle cx="64" cy="64" r="9" fill="#397950" stroke="#17241a" stroke-width="1.5"/>
+  <circle cx="64" cy="64" r="5" fill="#d9483b"/>
+
+  <g transform="translate(64 64) rotate(45)" stroke="#111411" stroke-width="2.5" stroke-linejoin="round">
+    <path d="M-2.5-39h5v29L0 0l-2.5-10Z" fill="#e8d9a5"/>
+    <rect x="-4.5" y="-28" width="9" height="19" rx="3.5" fill="#f2eee3"/>
+    <path d="M0-27-10-37v-13l10 6 10-6v13Z" fill="#d9483b"/>
+    <path d="M0-44v13" fill="none" stroke="#f2eee3" stroke-opacity=".65" stroke-width="1.5"/>
+  </g>
 </svg>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
@@ -359,7 +360,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className={`${inGame ? 'gameShell' : 'appShell'}${showBottomNav ? ' withDock' : ''}`}>
       <header className="topbar">
         <div className="topbarContent">
-          <Link className="brand" href="/"><span className="brandMark"><Icon name="target" /></span>Dartcounter</Link>
+          <Link className="brand" href="/"><Image className="brandMark" src="/favicon.svg?v=2" alt="" width={36} height={36} unoptimized />Dartcounter</Link>
           <nav className="topbarNav" aria-label="Main navigation">{navLinks(false)}</nav>
           <button className="btn menuTrigger" onClick={() => setOpen(true)} aria-label="Menu" aria-haspopup="dialog" aria-expanded={open}>
             <Icon name="menu" /> <span>Menu</span>

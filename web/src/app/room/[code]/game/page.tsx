@@ -961,12 +961,11 @@ function MobileGame({
   finished: boolean
 }) {
   const p = currentPlayer
-  const playerViews = players.map((pl, idx) => {
+  const playerViews = players.map((pl) => {
     const stats = statsByPlayerId[pl.id]
     const ps = leg?.players?.find((x) => x.playerId === pl.id)
     return {
       player: pl,
-      colorIndex: idx % 6,
       isCurrent: p?.id === pl.id,
       stats,
       remaining: ps?.remaining ?? null,
@@ -1030,7 +1029,6 @@ function MobileGame({
             <div
               key={v.player.id}
               className={v.isCurrent ? 'mobileScorePane mobileScorePaneActive' : 'mobileScorePane'}
-              style={{ ['--score-accent' as any]: scoreAccentForIndex(v.colorIndex) }}
             >
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                 <strong className="scoreName">{v.player.name}</strong>
@@ -1064,7 +1062,7 @@ function MobileGame({
             {otherViews.length > 0 ? (
               <div className="mobileScoreOthers">
                 {otherViews.map((v) => (
-                  <div key={v.player.id} className="mobileScoreMini" style={{ ['--score-accent' as any]: scoreAccentForIndex(v.colorIndex) }}>
+                   <div key={v.player.id} className="mobileScoreMini">
                     <span className="mobileScoreMiniName">{v.player.name}</span>
                     <span className="mobileScoreMiniRem">{v.remaining ?? '-'}</span>
                   </div>
@@ -1116,11 +1114,6 @@ function MobileGame({
       /> : null}
     </div>
   )
-}
-
-function scoreAccentForIndex(idx: number): string {
-  const palette = ['#ff6b5b', '#ffa726', '#5dd5b8', '#7ea9ff', '#d78bff', '#ffd166']
-  return palette[((idx % palette.length) + palette.length) % palette.length]
 }
 
 function lastScoreForPlayer(turns: MatchSnapshot['leg']['turns'], playerId: string): number | null {

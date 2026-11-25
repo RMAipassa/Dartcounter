@@ -1,35 +1,32 @@
-import fs from 'node:fs'
+import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 
-const root = path.resolve(process.cwd())
-const publicDir = path.join(root, 'public')
+const publicDir = fileURLToPath(new URL('../public/', import.meta.url))
 const iconsDir = path.join(publicDir, 'icons')
-const sourceSvg = path.join(publicDir, 'favicon.svg')
+const source = await readFile(path.join(publicDir, 'favicon.svg'))
+const background = '#111411'
 
-if (!fs.existsSync(publicDir)) {
-  throw new Error(`public directory not found at ${publicDir}`)
+await mkdir(iconsDir, { recursive: true })
+
+function render(size) {
+  return sharp(source, { density: 300 }).resize(size, size)
 }
 
-if (!fs.existsSync(sourceSvg)) {
-  throw new Error(`icon source not found at ${sourceSvg}`)
-}
+// The maskable version has a full-bleed background and extra room around the
+// board and dart so circular and rounded-square launchers won't clip the art.
+const maskableArtwork = await render(448).png().toBuffer()
+const output = [
+  ['icon-192.png', render(192)],
+  ['icon-512.png', render(512)],
+  ['apple-touch-icon.png', render(180).flatten({ background })],
+  ['favicon-32.png', render(32)],
+  ['favicon-16.png', render(16)],
+  ['icon-maskable-512.png', sharp({ create: { width: 512, height: 512, channels: 3, background } })
+    .composite([{ input: maskableArtwork, gravity: 'centre' }]).removeAlpha()],
+]
 
-fs.mkdirSync(iconsDir, { recursive: true })
-
-async function writePng(outPath, size) {
-  const buf = await fs.promises.readFile(sourceSvg)
-  // Render SVG to PNG at exact size
-  await sharp(buf, { density: 300 })
-    .resize(size, size)
-    .png({ compressionLevel: 9 })
-    .toFile(outPath)
-}
-
-await writePng(path.join(iconsDir, 'icon-192.png'), 192)
-await writePng(path.join(iconsDir, 'icon-512.png'), 512)
-await writePng(path.join(iconsDir, 'apple-touch-icon.png'), 180)
-await writePng(path.join(iconsDir, 'favicon-32.png'), 32)
-await writePng(path.join(iconsDir, 'favicon-16.png'), 16)
+await Promise.all(output.map(([file, image]) => image.png({ compressionLevel: 9 }).toFile(path.join(iconsDir, file))))
 
 console.log('Icons generated in public/icons')

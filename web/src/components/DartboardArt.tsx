@@ -14,26 +14,26 @@ function segment(inner: number, outer: number, angle: number) {
 export default function DartboardArt() {
   return (
     <svg className="heroBoard" viewBox="0 0 400 400" aria-hidden="true">
-      <circle cx="200" cy="200" r="194" fill="none" stroke="#829bff" strokeOpacity=".26" strokeDasharray="2 7" />
-      <circle cx="200" cy="200" r="176" fill="#201f45" stroke="#7b79b8" />
-      <circle cx="200" cy="200" r="143" fill="none" stroke="#9e9cc8" />
+      <circle cx="200" cy="200" r="194" fill="none" stroke="var(--board-cream)" strokeOpacity=".3" strokeDasharray="2 7" />
+      <circle cx="200" cy="200" r="176" fill="var(--bg0)" stroke="#657065" />
+      <circle cx="200" cy="200" r="143" fill="none" stroke="#a6aa9f" />
       {numbers.map((number, index) => {
         const angle = index * 18 - 90
         const [x, y] = point(159, angle).split(' ')
-        const bed = index % 2 ? '#f3ecda' : '#272652'
-        const wire = index % 2 ? '#9179e0' : '#d0fa6c'
+        const bed = index % 2 ? 'var(--board-cream)' : 'var(--panel2)'
+        const ring = index % 2 ? 'var(--board-green)' : 'var(--board-red)'
         return (
-          <g key={number} stroke="#211f46" strokeWidth=".8">
+          <g key={number} stroke="var(--bg0)" strokeWidth=".8">
             <path d={segment(14, 81, angle)} fill={bed} />
-            <path d={segment(81, 89, angle)} fill={wire} />
+            <path d={segment(81, 89, angle)} fill={ring} />
             <path d={segment(89, 132, angle)} fill={bed} />
-            <path d={segment(132, 141, angle)} fill={wire} />
-            <text x={x} y={y} stroke="none" textAnchor="middle" dominantBaseline="central" fill="#eeedff" fontSize="13" fontWeight="700">{number}</text>
+            <path d={segment(132, 141, angle)} fill={ring} />
+            <text x={x} y={y} stroke="none" textAnchor="middle" dominantBaseline="central" fill="var(--text)" fontSize="13" fontWeight="700">{number}</text>
           </g>
         )
       })}
-      <circle cx="200" cy="200" r="14" fill="#9179e0" stroke="#211f46" />
-      <circle cx="200" cy="200" r="6" fill="#d0fa6c" stroke="#211f46" />
+      <circle cx="200" cy="200" r="14" fill="var(--board-green)" stroke="var(--bg0)" />
+      <circle cx="200" cy="200" r="6" fill="var(--board-red)" stroke="var(--bg0)" />
     </svg>
   )
 }
