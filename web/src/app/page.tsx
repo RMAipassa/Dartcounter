@@ -1,53 +1,45 @@
-'use client'
+import Link from 'next/link'
+import DartboardArt from '@/components/DartboardArt'
+import Icon from '@/components/Icon'
 
-import { useEffect, useState } from 'react'
-import { getServerUrl } from '@/lib/config'
+const activities = [
+  { href: '/create?mode=practice', icon: 'target', label: 'Solo training', title: 'Practice', description: 'Work on doubles, trebles, or your finishing.' },
+  { href: '/daily-checkout', icon: 'daily', label: 'Daily challenge', title: 'Daily checkout', description: 'Take on a new finish every day.' },
+  { href: '/tournaments', icon: 'trophy', label: 'Competition', title: 'Tournaments', description: 'Set up a bracket and play to the final.' },
+] as const
 
 export default function HomePage() {
-  const [serverUrl, setServerUrl] = useState('')
-
-  useEffect(() => {
-    setServerUrl(getServerUrl())
-  }, [])
-
   return (
     <main className="homePage">
-      <section className="homeHero">
+      <section className="homeHero" aria-labelledby="home-heading">
+        <DartboardArt />
+        <div className="heroNotation" aria-hidden="true"><span>01 / X01</span><b>501</b><span>DOUBLE OUT</span></div>
         <div className="homeHeroCopy">
-          <span className="eyebrow">Match night starts here</span>
-          <h1>Keep score.<br /><em>Stay in the game.</em></h1>
-          <p>Fast, live darts scoring for the board in front of you and the friends across the world.</p>
+          <span className="eyebrow"><i /> The darts scoring app</span>
+          <h1 id="home-heading">Game <em>on.</em></h1>
+          <p>Score a match on the same board or play with friends from anywhere.</p>
           <div className="homeHeroActions">
-            <a className="btn btnPrimary homeMainAction" href="/create">Start a match <span aria-hidden="true">&rarr;</span></a>
-            <a className="btn homeMainAction" href="/join">Join with a code</a>
+            <Link className="btn btnPrimary" href="/create"><Icon name="plus" /> New match</Link>
+            <Link className="btn btnHeroSecondary" href="/join"><Icon name="key" /> Join with code</Link>
           </div>
-        </div>
-
-        <div className="homeBoardStage" aria-hidden="true">
-          <div className="homeBoard">
-            <span className="homeBoardRing homeBoardRingOne" />
-            <span className="homeBoardRing homeBoardRingTwo" />
-            <span className="homeBoardRing homeBoardBull" />
-            <span className="homeDart homeDartOne" />
-            <span className="homeDart homeDartTwo" />
-            <span className="homeDart homeDartThree" />
-          </div>
-          <div className="homeBoardCaption"><b>501</b><span>Double out<br />Best of 5</span></div>
+          <Link className="homeBrowse" href="/lobbies">Browse public lobbies <Icon name="arrow" /></Link>
         </div>
       </section>
 
-      <section className="homeLiveStrip">
-        <div><span className="liveDot" /> Ready to throw</div>
-        <a href="/lobbies">Browse public tables <span aria-hidden="true">&rarr;</span></a>
+      <section aria-labelledby="play-heading">
+        <div className="homeSectionHead"><h2 id="play-heading">More ways to play</h2></div>
+        <div className="homeModeRail">
+          {activities.map((activity) => (
+            <Link className="activityCard" href={activity.href} key={activity.href}>
+              <span className="activityIcon"><Icon name={activity.icon} /></span>
+              <span className="activityLabel">{activity.label}</span>
+              <strong>{activity.title}</strong>
+              <span className="activityDescription">{activity.description}</span>
+              <span className="activityArrow"><Icon name="arrow" /></span>
+            </Link>
+          ))}
+        </div>
       </section>
-
-      <section className="homeModeRail" aria-label="More ways to play">
-        <a href="/daily-checkout"><span>01</span><strong>Daily checkout</strong><small>One finish. One chance.</small></a>
-        <a href="/tournaments"><span>02</span><strong>Tournaments</strong><small>Build a knockout bracket.</small></a>
-        <a href="/account"><span>03</span><strong>Your form</strong><small>Stats, friends and boards.</small></a>
-      </section>
-
-      <div className="homeEndpoint">Connected to <span>{serverUrl || 'automatic server'}</span></div>
     </main>
   )
 }

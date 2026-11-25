@@ -1,14 +1,24 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import Icon from './Icon'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
+
+const destinations = [
+  { href: '/', label: 'Home', icon: 'home' },
+  { href: '/lobbies', label: 'Lobbies', icon: 'users' },
+  { href: '/daily-checkout', label: 'Daily', icon: 'daily' },
+  { href: '/tournaments', label: 'Tournaments', icon: 'trophy' },
+  { href: '/account', label: 'Account', icon: 'user' },
+] as const
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -16,21 +26,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<string | null>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [serverUrl, setServerUrl] = useState('')
-  const [roomCode, setRoomCode] = useState<string | null>(null)
   const [incomingRequestCount, setIncomingRequestCount] = useState(0)
   const [uiDensity, setUiDensity] = useState<'spacious' | 'compact'>('spacious')
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return window.matchMedia('(max-width: 520px)').matches
-  })
-
-  const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
+  const [hostSecret, setHostSecret] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDialogElement>(null)
   const wakeLockRef = useRef<any>(null)
-
-  const canFullscreen = useMemo(() => {
-    if (typeof document === 'undefined') return false
-    return Boolean((document.documentElement as any)?.requestFullscreen)
-  }, [])
+  const roomRoute = pathname.match(/^\/room\/([^/]+)\/(lobby|game)\/?$/i)
+  const roomCode = roomRoute?.[1]?.toUpperCase() ?? null
+  const inGame = roomRoute?.[2] === 'game'
+  const inDaily = /^\/daily-checkout\/.+/.test(pathname)
+  const showBottomNav = !inGame && !inDaily
 
   useEffect(() => {
     setServerUrl(getServerUrl())
@@ -43,27 +48,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     applyDensity()
 
     const onDensityChanged = () => applyDensity()
-    window.addEventListener('dc:uiDensityChanged', onDensityChanged as any)
-
-    const mq = window.matchMedia('(max-width: 520px)')
-    const onChange = () => setIsMobile(Boolean(mq.matches))
-    onChange()
-    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange)
-    else mq.addListener(onChange)
+    window.addEventListener('dc:uiDensityChanged', onDensityChanged)
     return () => {
-      window.removeEventListener('dc:uiDensityChanged', onDensityChanged as any)
-      if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', onChange)
-      else mq.removeListener(onChange)
+      window.removeEventListener('dc:uiDensityChanged', onDensityChanged)
     }
   }, [])
 
   useEffect(() => {
-    const m = pathname.match(/^\/room\/([^/]+)\/(lobby|game)/i)
-    setRoomCode(m ? m[1].toUpperCase() : null)
-  }, [pathname, isMobile])
+    setOpen(false)
+    setHostSecret(localStorage.getItem('dc_hostSecret'))
+  }, [pathname])
 
-  const hideTopbar = isMobile && Boolean(pathname.match(/^\/room\/[^/]+\/game/i))
-  const showBottomNav = !Boolean(pathname.match(/^\/room\/[^/]+\/game/i) || pathname.match(/^\/daily-checkout(\/|$)/i))
+  useEffect(() => {
+    const dialog = menuRef.current
+    if (open && !dialog?.open) dialog?.showModal()
+    if (!open && dialog?.open) dialog.close()
+  }, [open])
 
   useEffect(() => {
     function onOpenMenu() {
@@ -243,6 +243,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       const hostSecret = typeof evt?.hostSecret === 'string' ? evt.hostSecret : null
       if (!hostSecret) return
       localStorage.setItem('dc_hostSecret', hostSecret)
+      setHostSecret(hostSecret)
       setToast('You are now host for this room.')
       setTimeout(() => setToast(null), 2200)
     }
@@ -355,187 +356,67 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div>
-      {!hideTopbar ? (
-        <div className="topbar">
-          <a className="brand" href="/">
-            <span className="brandMark" aria-hidden="true"><i /><i /><i /></span>
-            <span>Dartcounter</span>
-          </a>
-          <nav className="topbarNav" aria-label="Main navigation">
-            <a className={pathname.startsWith('/lobbies') ? 'topbarLink topbarLinkActive' : 'topbarLink'} href="/lobbies">Lobbies</a>
-            <a className={pathname.startsWith('/tournaments') ? 'topbarLink topbarLinkActive' : 'topbarLink'} href="/tournaments">Tournaments</a>
-            <a className={pathname.startsWith('/account') ? 'topbarLink topbarLinkActive' : 'topbarLink'} href="/account">Account</a>
-          </nav>
-          <button className="menuTrigger" onClick={() => setOpen((v) => !v)} aria-label="Menu">
-            <span>{incomingRequestCount > 0 ? `Menu ${incomingRequestCount}` : 'Menu'}</span>
-            <i aria-hidden="true" />
+    <div className={`${inGame ? 'gameShell' : 'appShell'}${showBottomNav ? ' withDock' : ''}`}>
+      <header className="topbar">
+        <div className="topbarContent">
+          <Link className="brand" href="/"><span className="brandMark"><Icon name="target" /></span>Dartcounter</Link>
+          <nav className="topbarNav" aria-label="Main navigation">{navLinks(false)}</nav>
+          <button className="btn menuTrigger" onClick={() => setOpen(true)} aria-label="Menu" aria-haspopup="dialog" aria-expanded={open}>
+            <Icon name="menu" /> <span>Menu</span>
+            {incomingRequestCount > 0 ? <span className="navBadge">{incomingRequestCount}</span> : null}
           </button>
         </div>
-      ) : null}
+      </header>
 
-      {open ? (
-        <div
-          className="menuOverlay"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setOpen(false)}
-        >
-          <div className="menuPanel card" style={{ padding: 12 }} onClick={(e) => e.stopPropagation()}>
-            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="pill">Menu</span>
-              <button className="btn" onClick={() => setOpen(false)}>
-                Close
-              </button>
+      <dialog className="menuPanel" ref={menuRef} aria-labelledby="menu-heading" onClose={() => setOpen(false)} onClick={(event) => {
+        if (event.target === event.currentTarget) setOpen(false)
+      }}>
+        <div className="menuContent col">
+          <div className="row spread">
+            <h2 id="menu-heading" className="sectionTitle">Menu</h2>
+            <button className="btn iconButton" aria-label="Close menu" onClick={() => setOpen(false)}><Icon name="close" /></button>
+          </div>
+          {roomCode ? (
+            <div className="col">
+              <div className="row spread"><span className="pill">Room {roomCode}</span><button className="btn" onClick={() => { void copyRoomCode(); setOpen(false) }}>Copy code</button></div>
+              <div className="row">
+                {inGame && hostSecret ? <button className="btn" onClick={() => { void undoLastTurn(); setOpen(false) }}>Undo last turn</button> : null}
+                <button className="btn" onClick={() => { void leaveRoom(); setOpen(false) }}>Leave room</button>
+              </div>
             </div>
-
-            {roomCode ? (
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                <span className="pill">Room: {roomCode}</span>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    copyRoomCode()
-                    setOpen(false)
-                  }}
-                >
-                  Copy code
-                </button>
-              </div>
-            ) : null}
-
-            <div className="col" style={{ marginTop: 10 }}>
-              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="pill">UI density</span>
-                <div className="row" style={{ gap: 8 }}>
-                  <button className={uiDensity === 'spacious' ? 'btn btnPrimary' : 'btn'} onClick={() => applyUiDensity('spacious')}>
-                    Spacious
-                  </button>
-                  <button className={uiDensity === 'compact' ? 'btn btnPrimary' : 'btn'} onClick={() => applyUiDensity('compact')}>
-                    Compact
-                  </button>
-                </div>
-              </div>
-              <a className="btn menuNavBtn" href="/" onClick={() => setOpen(false)}>
-                <span className="menuBtnIcon" aria-hidden="true">H</span>
-                <span>Home</span>
-              </a>
-              <a className="btn menuNavBtn" href="/lobbies" onClick={() => setOpen(false)}>
-                <span className="menuBtnIcon" aria-hidden="true">L</span>
-                <span>Public lobbies</span>
-              </a>
-              <a className="btn menuNavBtn" href="/account" onClick={() => setOpen(false)}>
-                <span className="menuBtnIcon" aria-hidden="true">A</span>
-                {incomingRequestCount > 0 ? `Account (${incomingRequestCount})` : 'Account'}
-              </a>
-              <a className="btn menuNavBtn" href="/daily-checkout" onClick={() => setOpen(false)}>
-                <span className="menuBtnIcon" aria-hidden="true">D</span>
-                <span>Daily checkout</span>
-              </a>
-              <a className="btn menuNavBtn" href="/tournaments" onClick={() => setOpen(false)}>
-                <span className="menuBtnIcon" aria-hidden="true">T</span>
-                <span>Tournaments</span>
-              </a>
-              {roomCode ? (
-                <button
-                  className="btn menuNavBtn"
-                  onClick={() => {
-                    setOpen(false)
-                    leaveRoom()
-                  }}
-                >
-                  <span className="menuBtnIcon" aria-hidden="true">X</span>
-                  <span>Leave room</span>
-                </button>
-              ) : null}
-              {roomCode && hostSecret ? (
-                <button
-                  className="btn menuNavBtn"
-                  onClick={() => {
-                    setOpen(false)
-                    undoLastTurn()
-                  }}
-                >
-                  <span className="menuBtnIcon" aria-hidden="true">U</span>
-                  <span>Undo last turn</span>
-                </button>
-              ) : null}
-              <button
-                className={deferredPrompt ? 'btn btnPrimary menuNavBtn' : 'btn menuNavBtn'}
-                onClick={() => {
-                  setOpen(false)
-                  install()
-                }}
-              >
-                <span className="menuBtnIcon" aria-hidden="true">I</span>
-                <span>Install app</span>
-              </button>
-              <button
-                className="btn menuNavBtn"
-                onClick={() => {
-                  setOpen(false)
-                  toggleFullscreen()
-                }}
-              >
-                <span className="menuBtnIcon" aria-hidden="true">F</span>
-                <span>Fullscreen</span>
-              </button>
-              <div className="help">Best fullscreen: use Install (Add to Home Screen).</div>
+          ) : null}
+          <nav className="menuLinks" aria-label="Menu navigation">{navLinks(false, true)}</nav>
+          <div className="row spread">
+            <span className="help">Layout density</span>
+            <div className="row" role="group" aria-label="Layout density">
+              {(['spacious', 'compact'] as const).map((density) => (
+                <button key={density} className="btn" aria-pressed={uiDensity === density} onClick={() => applyUiDensity(density)}>{density === 'spacious' ? 'Spacious' : 'Compact'}</button>
+              ))}
             </div>
           </div>
+          <div className="row">
+            <button className="btn" onClick={() => { setOpen(false); void install() }}>Install app</button>
+            <button className="btn" onClick={() => { setOpen(false); void toggleFullscreen() }}>Fullscreen</button>
+          </div>
         </div>
-      ) : null}
+      </dialog>
 
-      {children}
-
-      {showBottomNav ? (
-        <nav className="mobileDock" aria-label="Primary">
-          <a className={pathname === '/' ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/">
-            <span className="mobileDockIcon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M4 11.5 12 5l8 6.5V20h-5v-5h-6v5H4z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              </svg>
-            </span>
-            <span>Home</span>
-          </a>
-          <a className={pathname.startsWith('/lobbies') ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/lobbies">
-            <span className="mobileDockIcon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </span>
-            <span>Lobbies</span>
-          </a>
-          <a className={pathname.startsWith('/account') ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/account">
-            <span className="mobileDockIcon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <circle cx="12" cy="8" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M5 20a7 7 0 0 1 14 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </span>
-            <span>Account</span>
-          </a>
-          <a className={pathname.startsWith('/daily-checkout') ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/daily-checkout">
-            <span className="mobileDockIcon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M12 8v4l3 2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </span>
-            <span>Daily</span>
-          </a>
-          <a className={pathname.startsWith('/tournaments') ? 'mobileDockItem mobileDockItemActive' : 'mobileDockItem'} href="/tournaments">
-            <span className="mobileDockIcon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M6 5h12v2a6 6 0 0 1-4 5.64V16h3v2H7v-2h3v-3.36A6 6 0 0 1 6 7V5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              </svg>
-            </span>
-            <span>Tourneys</span>
-          </a>
-        </nav>
-      ) : null}
-
-      {toast ? <div className="toast">{toast}</div> : null}
+      <div className="container">{children}</div>
+      {showBottomNav ? <nav className="mobileDock" aria-label="Main navigation">{navLinks(true)}</nav> : null}
+      {toast ? <div className="toast" role="status">{toast}</div> : null}
     </div>
   )
+
+  function navLinks(dock: boolean, menu = false) {
+    return destinations.map(({ href, icon, label }) => {
+      const active = pathname === href || (href !== '/' && pathname.startsWith(`${href}/`))
+      return (
+        <Link key={href} href={href} className={dock ? 'mobileDockItem' : 'topbarLink'} aria-current={active ? 'page' : undefined} onClick={menu ? () => setOpen(false) : undefined}>
+          <Icon name={icon} />
+          <span>{dock && href === '/tournaments' ? 'Brackets' : label}</span>
+          {href === '/account' && incomingRequestCount > 0 ? <span className="navBadge" aria-label={`${incomingRequestCount} notifications`}>{incomingRequestCount}</span> : null}
+        </Link>
+      )
+    })
+  }
 }

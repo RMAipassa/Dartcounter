@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 import './globals.css'
 import AppShell from '@/components/AppShell'
@@ -8,12 +8,12 @@ export const metadata: Metadata = {
   description: 'Live darts scoring for local and remote matches',
 }
 
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#111221' }
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <meta name="theme-color" content="#111411" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="icon" href="/icons/favicon-32.png" type="image/png" sizes="32x32" />
@@ -26,9 +26,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <meta name="apple-mobile-web-app-title" content="Dartcounter" />
       </head>
       <body>
-        <AppShell>
-          <div className="container">{children}</div>
-        </AppShell>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   )

@@ -22,22 +22,8 @@ export default function LobbyPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [newPlayer, setNewPlayer] = useState('')
   const [startingPlayerIndex, setStartingPlayerIndex] = useState(0)
-  const [isMobile, setIsMobile] = useState(false)
   const [friends, setFriends] = useState<LobbyFriend[]>([])
   const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const mq = window.matchMedia('(max-width: 520px)')
-    const onChange = () => setIsMobile(Boolean(mq.matches))
-    onChange()
-    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange)
-    else mq.addListener(onChange)
-    return () => {
-      if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', onChange)
-      else mq.removeListener(onChange)
-    }
-  }, [])
 
   useEffect(() => {
     const socket = getSocket(serverUrl)
@@ -199,26 +185,44 @@ export default function LobbyPage() {
     .filter((n, idx, arr) => arr.findIndex((x) => x.toLowerCase() === n.toLowerCase()) === idx)
 
   return (
-    <div className="col" style={{ gap: 16 }}>
+    <main className="col" style={{ gap: 16 }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1 className="title">Lobby</h1>
+          <span className="eyebrow">{match?.status === 'FINISHED' ? 'Match complete' : 'Match lobby'}</span>
+          <h1 className="title">{snap?.room?.title || 'Lobby'}</h1>
           <p className="subtitle">
             Room <span className="pill">{code}</span> {locked ? <span className="pill">Settings locked</span> : null}
           </p>
         </div>
         <div className="row">
-          <a className="btn" href="/">
-            Home
-          </a>
+          <button className="btn" onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(code)
+              setToast('Room code copied')
+            } catch {
+              setToast(`Share room code ${code}`)
+            }
+            setTimeout(() => setToast(null), 2200)
+          }}>Copy room code</button>
         </div>
       </div>
+
+      {isHost && match?.status === 'LOBBY' ? (
+        <div className="card lobbyStartPanel">
+          <label className="col help">Starting player
+            <select className="select" value={startingPlayerIndex} onChange={(e) => setStartingPlayerIndex(Number(e.target.value))} disabled={players.length === 0}>
+              {players.map((p, idx) => <option key={p.id} value={idx}>{p.name}</option>)}
+            </select>
+          </label>
+          <button className="btn btnPrimary" onClick={startGame} disabled={players.length === 0}>Start game</button>
+        </div>
+      ) : null}
 
       <div className="grid2 lobbyGrid">
         <div className="card lobbyPlayersCard" style={{ padding: 16 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: 16, marginBottom: 6 }}>Players</div>
+              <h2 className="sectionTitle">Players</h2>
               <div className="help">Add players, then choose who starts.</div>
             </div>
             {isHost ? <span className="pill">Host controls</span> : <span className="pill">Viewer</span>}
@@ -282,6 +286,8 @@ export default function LobbyPage() {
                 value={newPlayer}
                 onChange={(e) => setNewPlayer(e.target.value)}
                 placeholder="Add player name"
+                aria-label="Add player name"
+                maxLength={32}
                 disabled={!isHost || locked || match?.status !== 'LOBBY'}
               />
               <button
@@ -296,7 +302,7 @@ export default function LobbyPage() {
         </div>
 
         <div className="card lobbyMetaCard" style={{ padding: 16 }}>
-          <div style={{ fontSize: 16, marginBottom: 6 }}>Lobby</div>
+          <h2 className="sectionTitle">Lobby settings</h2>
           <div className="help">Visibility + settings lock after the first recorded turn.</div>
 
           <div className="col" style={{ marginTop: 10 }}>
@@ -376,35 +382,6 @@ export default function LobbyPage() {
             {autodarts?.lastError ? <div className="help" style={{ color: 'var(--bad)' }}>Error: {autodarts.lastError}</div> : null}
           </div>
 
-          {!isMobile ? (
-            <>
-              <hr className="hr" style={{ marginTop: 14 }} />
-
-              <div className="col">
-                <div className="help">Starting player</div>
-                <select
-                  className="select"
-                  value={startingPlayerIndex}
-                  onChange={(e) => setStartingPlayerIndex(Number(e.target.value))}
-                  disabled={!isHost || match?.status !== 'LOBBY' || players.length === 0}
-                >
-                  {players.map((p, idx) => (
-                    <option key={p.id} value={idx}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="btn btnPrimary"
-                  onClick={startGame}
-                  disabled={!isHost || match?.status !== 'LOBBY' || players.length === 0}
-                >
-                  Start game
-                </button>
-              </div>
-            </>
-          ) : null}
-
           <hr className="hr" style={{ marginTop: 14 }} />
 
           <div className="col">
@@ -423,30 +400,8 @@ export default function LobbyPage() {
         </div>
       </div>
 
-      {isMobile && isHost ? (
-        <div className="card lobbyMobileStartBar" style={{ padding: 12 }}>
-          <div className="row" style={{ alignItems: 'stretch' }}>
-            <select
-              className="select"
-              value={startingPlayerIndex}
-              onChange={(e) => setStartingPlayerIndex(Number(e.target.value))}
-              disabled={match?.status !== 'LOBBY' || players.length === 0}
-            >
-              {players.map((p, idx) => (
-                <option key={p.id} value={idx}>
-                  Start: {p.name}
-                </option>
-              ))}
-            </select>
-            <button className="btn btnPrimary lobbyStartBtn" onClick={startGame} disabled={match?.status !== 'LOBBY' || players.length === 0}>
-              Start game
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {toast ? <div className="toast">{toast}</div> : null}
-    </div>
+      {toast ? <div className="toast" role="status">{toast}</div> : null}
+    </main>
   )
 }
 

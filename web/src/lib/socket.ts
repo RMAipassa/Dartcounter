@@ -29,6 +29,7 @@ function handleAuthInvalidIfNeeded(res: any): void {
 
 export function getSocket(url: string): AckedSocket {
   if (socketSingleton && socketUrl === url) return socketSingleton
+  socketSingleton?.close()
 
   const s = io(url, {
     transports: ['websocket'],
@@ -37,17 +38,13 @@ export function getSocket(url: string): AckedSocket {
 
   s.emitWithAck = (event: string, payload?: any, timeoutMs = 6000) => {
     return new Promise((resolve) => {
-      let done = false
-      const t = setTimeout(() => {
-        if (done) return
-        done = true
-        resolve({ ok: false, code: 'TIMEOUT', message: 'Request timed out' })
-      }, timeoutMs)
-
-      s.emit(event, payload, (res: any) => {
-        if (done) return
-        done = true
-        clearTimeout(t)
+      // Socket.IO also removes unsent packets when their acknowledgement expires.
+      // A disconnected scorer must not send a stale visit after it has timed out.
+      s.timeout(timeoutMs).emit(event, payload, (err: Error | null, res: any) => {
+        if (err) {
+          resolve({ ok: false, code: 'TIMEOUT', message: 'No response from the server. Check the scoreboard before retrying.' })
+          return
+        }
         handleAuthInvalidIfNeeded(res)
         resolve(res)
       })

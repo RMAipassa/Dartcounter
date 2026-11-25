@@ -3,8 +3,8 @@
   "short_name": "Dartcounter",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#111411",
-  "theme_color": "#111411",
+  "background_color": "#111221",
+  "theme_color": "#111221",
   "icons": [
     {
       "src": "/icons/icon-192.png",

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
@@ -16,15 +17,16 @@ export default function JoinPage() {
 
   useEffect(() => {
     const authName = localStorage.getItem('dc_authDisplayName')
+    setName(authName || localStorage.getItem('dc_name') || '')
     if (authName) {
       setAuthDisplayName(authName)
-      setName(authName)
     }
   }, [])
 
-  const effectiveName = authDisplayName?.trim() ? authDisplayName : name
+  const effectiveName = (authDisplayName || name).trim()
 
   async function joinRoom(asSpectator: boolean) {
+    if (joining || !effectiveName || !joinCode.trim()) return
     setErr(null)
     setJoining(true)
     try {
@@ -49,47 +51,48 @@ export default function JoinPage() {
     }
   }
 
-  return (
-    <div className="col" style={{ gap: 14 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 className="title">Join Lobby</h1>
-          <p className="subtitle">Enter a room code and pick your role.</p>
-        </div>
-        <a className="btn" href="/">Home</a>
-      </div>
+  function joinAsPlayer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void joinRoom(false)
+  }
 
-      <div className="card" style={{ padding: 16 }}>
-        <div className="col">
+  return (
+    <main className="col setupPage setupNarrow">
+      <header className="row spread">
+        <div>
+          <span className="eyebrow">Play with friends</span>
+          <h1 className="title">Join with a code</h1>
+          <p className="subtitle">Enter the code from the host to play or watch.</p>
+        </div>
+      </header>
+
+      <form className="card col setupPanel" onSubmit={joinAsPlayer}>
           {authDisplayName ? (
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <div className="help">Signed in name</div>
               <span className="pill" style={{ color: 'var(--text)' }}>{authDisplayName}</span>
             </div>
           ) : (
-            <div className="col">
-              <label className="help">Your name</label>
-              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ruben" />
-            </div>
+            <label className="col help">Your name
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Display name" autoComplete="nickname" maxLength={32} required />
+            </label>
           )}
 
-          <div className="col">
-            <label className="help">Room code</label>
-            <input className="input" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="AB12CD" />
-          </div>
+          <label className="col help">Room code
+            <input className="input setupCode" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="AB12CD" autoCapitalize="characters" autoComplete="off" spellCheck={false} maxLength={16} required />
+          </label>
 
-          <div className="row homeJoinActions">
-            <button className="btn" disabled={joining || !effectiveName.trim() || !joinCode.trim()} onClick={() => void joinRoom(false)}>
-              {joining ? 'Joining...' : 'Join as player'}
+          {err ? <p className="formError" role="alert">{err}</p> : null}
+          <div className="row setupFooter">
+            <button type="submit" className="btn btnPrimary" disabled={joining || !effectiveName || !joinCode.trim()}>
+              {joining ? 'Joining…' : 'Join as player'}
             </button>
-            <button className="btn" disabled={joining || !effectiveName.trim() || !joinCode.trim()} onClick={() => void joinRoom(true)}>
-              {joining ? 'Joining...' : 'Join as spectator'}
+            <button type="button" className="btn" disabled={joining || !effectiveName || !joinCode.trim()} onClick={() => void joinRoom(true)}>
+              Join as spectator
             </button>
           </div>
-        </div>
-      </div>
-
-      {err ? <div className="toast">{err}</div> : null}
-    </div>
+      </form>
+      <Link className="btn" href="/lobbies">Browse public lobbies</Link>
+    </main>
   )
 }

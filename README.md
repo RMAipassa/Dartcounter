@@ -56,7 +56,7 @@ Notes:
 - Requires `git` in PATH and an upstream branch configured.
 - Uses `git pull --ff-only` and will skip updates if the working tree is dirty.
 
-Web uses `NEXT_PUBLIC_SERVER_URL` (defaults to `http://localhost:3001`). See `web/.env.example`.
+When using the separate web dev server on port 3000, set `NEXT_PUBLIC_SERVER_URL=http://localhost:3001` in `web/.env.local`. Without this setting the client uses the page's origin. See `web/.env.example`.
 
 ## Single-process (one port) hosting
 
@@ -75,6 +75,8 @@ npm start
 ```
 
 In production, if `NEXT_PUBLIC_SERVER_URL` is not set, the web UI will connect to the same origin automatically.
+
+To try the UI on a phone, use single-port hosting and open `http://<your-PC's-LAN-IP>:<port>` from a phone on the same network. Leave `NEXT_PUBLIC_SERVER_URL` unset for the build so the browser uses that same address for scoring. A phone's `localhost` points to the phone, not your PC.
 
 ## Autodarts groundwork
 

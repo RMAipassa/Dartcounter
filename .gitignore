@@ -9,6 +9,7 @@ pnpm-debug.log*
 
 # Builds
 dist/
+*.tsbuildinfo
 .next/
 .next_build/
 out/

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
@@ -36,6 +37,12 @@ const defaultPracticeSettings: PracticeSettings = {
   setsToWin: 0,
 }
 
+const modes = [
+  { settings: defaultSettings, label: 'X01', description: 'Count down to zero' },
+  { settings: defaultAroundSettings, label: 'Around the Board', description: 'Hit 1 through 20 in order' },
+  { settings: defaultPracticeSettings, label: 'Practice', description: 'Train on your own' },
+]
+
 export default function CreatePage() {
   const router = useRouter()
   const serverUrl = useMemo(() => getServerUrl(), [])
@@ -49,15 +56,19 @@ export default function CreatePage() {
 
   useEffect(() => {
     const authName = localStorage.getItem('dc_authDisplayName')
+    setName(authName || localStorage.getItem('dc_name') || '')
     if (authName) {
       setAuthDisplayName(authName)
-      setName(authName)
     }
+    if (new URLSearchParams(window.location.search).get('mode') === 'practice') setSettings(defaultPracticeSettings)
   }, [])
 
-  const effectiveName = authDisplayName?.trim() ? authDisplayName : name
+  const effectiveName = (authDisplayName || name).trim()
+  const practice = settings.gameType === 'PRACTICE'
 
-  async function createRoom() {
+  async function createRoom(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (creating || !effectiveName) return
     setErr(null)
     setCreating(true)
     try {
@@ -90,35 +101,45 @@ export default function CreatePage() {
   }
 
   return (
-    <div className="col" style={{ gap: 14 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+    <main className="col setupPage">
+      <header className="row spread">
         <div>
-          <h1 className="title">Create Match</h1>
-          <p className="subtitle">Set up your lobby and start when everyone is ready.</p>
+          <span className="eyebrow">{practice ? 'Solo training' : 'Match setup'}</span>
+          <h1 className="title">{practice ? 'New practice session' : 'New match'}</h1>
+          <p className="subtitle">{practice ? 'Choose a drill and go straight to the board.' : 'Pick a game mode, then invite friends or add players at the board.'}</p>
         </div>
-        <a className="btn" href="/">Home</a>
-      </div>
+        <Link className="btn" href="/join">Join with code</Link>
+      </header>
 
-      <div className="card" style={{ padding: 16 }}>
-        <div className="col">
+      <form className="card col setupPanel" onSubmit={createRoom}>
+          <section className="col" aria-labelledby="mode-heading">
+            <h2 id="mode-heading" className="sectionTitle">Game mode</h2>
+            <div className="setupModes" role="group" aria-labelledby="mode-heading">
+              {modes.map(({ settings: preset, label, description }) => (
+                <button key={preset.gameType} className="btn setupMode" type="button" aria-pressed={settings.gameType === preset.gameType}
+                  onClick={() => setSettings((s) => s.gameType === preset.gameType ? s : preset)}>
+                  {label}<small>{description}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+          <h2 className="sectionTitle">{practice ? 'Session details' : 'Lobby details'}</h2>
           {authDisplayName ? (
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <div className="help">Signed in name</div>
               <span className="pill" style={{ color: 'var(--text)' }}>{authDisplayName}</span>
             </div>
           ) : (
-            <div className="col">
-              <label className="help">Your name</label>
-              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ruben" />
-            </div>
+            <label className="col help">Your name
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Display name" autoComplete="nickname" maxLength={32} required />
+            </label>
           )}
 
           {settings.gameType !== 'PRACTICE' ? (
             <div className="grid2">
-              <div className="col">
-                <label className="help">Lobby name</label>
-                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Friday 501" />
-              </div>
+              <label className="col help">Lobby name (optional)
+                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Friday 501" maxLength={48} />
+              </label>
               <div className="col">
                 <label className="help">Visibility</label>
                 <label className="pill" style={{ cursor: 'pointer' }}>
@@ -130,42 +151,15 @@ export default function CreatePage() {
           ) : null}
 
           <div className="grid2">
-            <div className="col" style={{ gridColumn: '1 / -1' }}>
-              <label className="help">Game mode</label>
-              <div className="row homePresetRow">
-                <button
-                  className={settings.gameType === 'X01' ? 'btn btnPrimary' : 'btn'}
-                  type="button"
-                  onClick={() => setSettings((s) => (s.gameType === 'X01' ? s : defaultSettings))}
-                >
-                  X01
-                </button>
-                <button
-                  className={settings.gameType === 'AROUND' ? 'btn btnPrimary' : 'btn'}
-                  type="button"
-                  onClick={() => setSettings((s) => (s.gameType === 'AROUND' ? s : defaultAroundSettings))}
-                >
-                  Around the Board
-                </button>
-                <button
-                  className={settings.gameType === 'PRACTICE' ? 'btn btnPrimary' : 'btn'}
-                  type="button"
-                  onClick={() => setSettings((s) => (s.gameType === 'PRACTICE' ? s : defaultPracticeSettings))}
-                >
-                  Practice
-                </button>
-              </div>
-            </div>
-
             {settings.gameType === 'X01' ? (
               <>
                 <div className="col">
-                  <label className="help">Start score</label>
+                  <span className="help">Start score</span>
                   <div className="row homePresetRow" style={{ flexWrap: 'wrap' }}>
                     {allowedX01StartScores.map((score) => (
                       <button
                         key={score}
-                        className={settings.startScore === score ? 'btn btnPrimary' : 'btn'}
+                        className="btn" aria-pressed={settings.startScore === score}
                         type="button"
                         onClick={() => setSettings((s) => ({ ...(s as X01Settings), startScore: score }))}
                       >
@@ -175,11 +169,13 @@ export default function CreatePage() {
                   </div>
                 </div>
                 <div className="col">
-                  <label className="help">Legs to win</label>
+                  <label className="help" htmlFor="x01-legs">Legs to win</label>
                   <input
+                    id="x01-legs"
                     className="input"
                     type="number"
                     min={1}
+                    max={99}
                     value={settings.legsToWin}
                     onChange={(e) => setSettings((s) => ({ ...(s as X01Settings), legsToWin: clampInt(Number(e.target.value), 1, 99, 3) }))}
                   />
@@ -188,11 +184,13 @@ export default function CreatePage() {
             ) : settings.gameType === 'AROUND' ? (
               <div className="grid2" style={{ gridColumn: '1 / -1' }}>
                 <div className="col">
-                  <label className="help">Legs to win</label>
+                  <label className="help" htmlFor="around-legs">Legs to win</label>
                   <input
+                    id="around-legs"
                     className="input"
                     type="number"
                     min={1}
+                    max={99}
                     value={settings.legsToWin}
                     onChange={(e) => setSettings((s) => ({ ...(s as AroundSettings), legsToWin: clampInt(Number(e.target.value), 1, 99, 3) }))}
                   />
@@ -272,14 +270,14 @@ export default function CreatePage() {
             )}
           </div>
 
-          <button className="btn btnPrimary" disabled={creating || !effectiveName.trim()} onClick={createRoom}>
-            {creating ? 'Creating...' : 'Create room'}
-          </button>
-        </div>
-      </div>
-
-      {err ? <div className="toast">{err}</div> : null}
-    </div>
+          {err ? <p className="formError" role="alert">{err}</p> : null}
+          <div className="row setupFooter">
+            <button className="btn btnPrimary" type="submit" disabled={creating || !effectiveName}>
+              {creating ? 'Creating…' : practice ? 'Start practice' : 'Create lobby'}
+            </button>
+          </div>
+      </form>
+    </main>
   )
 }
 
