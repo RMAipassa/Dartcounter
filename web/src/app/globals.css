@@ -293,19 +293,18 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .padKeyAlt { font-size: 13px; color: var(--muted); }
 .gameShell .toast { background: var(--panel2); border-color: var(--border); }
 
-/* Match scoreboard: keep the warm accents on the active player and scoring actions. */
+/* Match scoreboard: use dartboard red for the active player and scoring actions. */
 .matchGamePage {
-  --match-highlight: #d9a66c;
-  --match-outline: #bd8957;
-  --match-badge: #332a1e;
-  --match-score-button: #d6a16a;
-  --match-score-ink: #211911;
+  --match-highlight: #ed928a;
+  --match-outline: #c35d55;
+  --match-badge: #382320;
+  --accent: var(--match-highlight);
 }
 .scoringHeader[data-compact='true'] .scoringHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 9px; }
 .scoringHeader[data-compact='true'] .scoringHeading h1 { font-size: clamp(20px, 3.1vw, 36px); }
 .scoringHeader[data-compact='true'] .scoringHeading p { margin: 0; font-size: clamp(12px, 1.6vw, 17px); }
 .gameShell .scoreSound { width: 44px; padding: 0; background: var(--scoring-key); }
-.gameShell .scoreSound[aria-pressed='true'] { color: var(--match-highlight); background: var(--match-badge); border-color: #685034; }
+.gameShell .scoreSound[aria-pressed='true'] { color: var(--match-highlight); background: var(--match-badge); border-color: var(--match-outline); }
 .matchGamePage .playerCard { grid-template-rows: auto auto minmax(min-content, 1fr) auto; gap: clamp(5px, 1vw, 12px); }
 .matchGamePage .playerCard[data-current='true'] { background: #222b23; border: 1px solid var(--match-outline); box-shadow: inset 0 3px var(--match-outline); }
 .matchGamePage .playerCard[data-current='true'] .scoreName { color: var(--match-highlight); }
@@ -313,7 +312,7 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .scoreIdentity .scoreName { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.15; }
 .scoreAvatar .nameMark { width: clamp(29px, 4vw, 42px); height: clamp(29px, 4vw, 42px); background: var(--avatar-bg, #393149); color: var(--avatar-ink, #ead9ff); border: 0; }
 .scoreAvatar[data-tone='1'] { --avatar-bg: #243a51; --avatar-ink: #d4e9ff; }
-.scoreAvatar[data-tone='2'] { --avatar-bg: #483429; --avatar-ink: #ffe0bf; }
+.scoreAvatar[data-tone='2'] { --avatar-bg: #482e34; --avatar-ink: #f5d3d8; }
 .scoreAvatar[data-tone='3'] { --avatar-bg: #293d38; --avatar-ink: #d0ebe2; }
 .matchGamePage .playerBigNum { justify-self: center; text-align: center; }
 .scoreCardDetails { display: grid; justify-items: center; gap: 7px; }
@@ -324,7 +323,7 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .scoreRecents .scoreChip[data-bust='true'] { color: var(--bad); }
 .scoreAverages { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px 12px; text-align: center; color: var(--muted); font-size: clamp(11px, 1.25vw, 16px); }
 .scoreCheckout { min-height: 24px; }
-.scoreCheckout span { display: inline-block; padding: 3px 7px; border-radius: 6px; background: var(--match-badge); color: #edbf87; font-size: clamp(11px, 1.3vw, 16px); font-weight: 800; line-height: 1.25; }
+.scoreCheckout span { display: inline-block; padding: 3px 7px; border-radius: 6px; background: var(--match-badge); color: var(--match-highlight); font-size: clamp(11px, 1.3vw, 16px); font-weight: 800; line-height: 1.25; }
 .matchTurnEntry { gap: clamp(5px, .8vw, 10px); }
 .matchTurnEntry .entryBar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, .64fr) auto; gap: 6px; }
 .currentScorer { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: clamp(12px, 1.75vw, 20px); }
@@ -341,14 +340,12 @@ input[type='checkbox'] { accent-color: var(--cta); }
 .quickScores { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
 .quickScores .btn { padding: 4px 2px; background: var(--bg1); font-size: clamp(13px, 1.65vw, 20px); }
 .quickScore[data-band='mid'] { color: #9cbca8; }
-.quickScore[data-band='high'] { color: #ebbd87; }
+.quickScore[data-band='high'] { color: var(--match-highlight); }
 .matchEntryActions { display: flex; gap: 5px; }
 .matchEntryActions .btn { flex: 1 1 0; min-width: 0; padding-inline: 4px; }
 .matchEntryActions .btn[aria-pressed='true'] { border-color: var(--match-outline); color: var(--match-highlight); }
-.matchGamePage .matchEntryActions .entrySubmit { background: var(--match-score-button); border-color: var(--match-score-button); color: var(--match-score-ink); }
 @media (hover: hover) {
   .gameShell .entryModeToggle .btn[aria-pressed='true']:not(:disabled):hover { background: #484f47; color: var(--text); border-color: #747d71; }
-  .matchGamePage .matchEntryActions .entrySubmit:not(:disabled):hover { background: #e6b889; border-color: #e6b889; }
 }
 
 /* Horizontally scrollable tournament bracket */
