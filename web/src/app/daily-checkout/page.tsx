@@ -87,14 +87,11 @@ export default function DailyCheckoutCalendarPage() {
               return (
                 <button
                   key={key}
-                  className={isSelected ? 'btn btnPrimary' : 'btn'}
+                  className="btn calendarDay"
+                  aria-pressed={isSelected}
+                  aria-current={isToday ? 'date' : undefined}
                   disabled={isFuture || isBeforeStart}
                   onClick={() => setSelectedDateKey(key)}
-                  style={{
-                    minHeight: 42,
-                    opacity: isFuture || isBeforeStart ? 0.4 : 1,
-                    borderColor: isToday ? 'var(--good)' : undefined,
-                  }}
                 >
                   {day}
                 </button>

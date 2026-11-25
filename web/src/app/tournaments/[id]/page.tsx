@@ -321,7 +321,7 @@ export default function TournamentDetailPage() {
           </div>
 
           {t.participationMode === 'ONLINE' && t.status === 'LIVE' && myActiveOnlineMatch ? (
-            <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
+            <div className="card cardInset" style={{ padding: 12 }}>
               <div className="help" style={{ marginBottom: 8 }}>Your current match</div>
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 <span className="pill">R{myActiveOnlineMatch.roundIndex + 1} M{myActiveOnlineMatch.matchIndex + 1}</span>
@@ -359,7 +359,7 @@ export default function TournamentDetailPage() {
             </div>
           ) : null}
 
-          <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
+          <div className="card cardInset" style={{ padding: 12 }}>
             <div className="help" style={{ marginBottom: 8 }}>Players</div>
             <div className="row" style={{ flexWrap: 'wrap' }}>
               {t.players.map((p) => (
@@ -369,7 +369,7 @@ export default function TournamentDetailPage() {
           </div>
 
           {t.isHost && t.status === 'LOBBY' && t.participationMode === 'LOCAL' ? (
-            <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
+          <div className="card cardInset" style={{ padding: 12 }}>
               <div className="help" style={{ marginBottom: 8 }}>Add local player</div>
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 <input className="input" value={localPlayerName} onChange={(e) => setLocalPlayerName(e.target.value)} placeholder="Player name" />
@@ -389,7 +389,7 @@ export default function TournamentDetailPage() {
           ) : null}
 
           {t.isHost && t.status === 'LOBBY' ? (
-            <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
+          <div className="card cardInset" style={{ padding: 12 }}>
               <div className="help" style={{ marginBottom: 8 }}>Seeding</div>
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 <button className={seedingMode === 'JOIN_ORDER' ? 'btn btnPrimary' : 'btn'} onClick={() => void saveSeeding('JOIN_ORDER')} disabled={busy}>Join order</button>
@@ -414,7 +414,7 @@ export default function TournamentDetailPage() {
           ) : null}
 
           {t.status === 'LOBBY' && t.isParticipant && t.participationMode === 'ONLINE' ? (
-            <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
+          <div className="card cardInset" style={{ padding: 12 }}>
               <div className="help" style={{ marginBottom: 8 }}>Invite friends</div>
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 {friends.length < 1 ? <span className="pill">No friends yet</span> : null}
@@ -428,7 +428,7 @@ export default function TournamentDetailPage() {
           ) : null}
 
           {t.isHost && t.status === 'LIVE' ? (
-            <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)' }}>
+          <div className="card cardInset" style={{ padding: 12 }}>
               <div className="help" style={{ marginBottom: 8 }}>Match controls</div>
               <div className="col" style={{ gap: 8 }}>
                 {t.rounds.flatMap((round) => round.matches).filter((m) => m.playerAUserId && m.playerBUserId && !m.winnerUserId).length < 1 ? (
@@ -474,7 +474,7 @@ export default function TournamentDetailPage() {
                     }
                     return (
                     <div key={m.id} className="tourneyMatchAbs" style={nodeStyle}>
-                    <div className="card" style={{ padding: 12, background: 'rgba(0,0,0,0.14)', minHeight: 136 }}>
+                    <div className="card cardInset" style={{ padding: 12, minHeight: 136 }}>
                       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                         <span className="pill">M{m.matchIndex + 1}</span>
                         <span className="pill">{m.status}</span>

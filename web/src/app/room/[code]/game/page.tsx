@@ -819,8 +819,8 @@ export default function GamePage() {
             return (
               <div
                 key={p.id}
-                className="card"
-                style={{ padding: 12, background: 'rgba(0,0,0,0.12)', border: '1px solid rgba(255,255,255,0.12)' }}
+                className="card cardInset"
+                style={{ padding: 12 }}
               >
                 <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="pill" style={{ color: 'var(--text)' }}>{p.name}</span>
@@ -1730,8 +1730,8 @@ function ScoresByPlayer({
         return (
           <div
             key={p.id}
-            className="card"
-            style={{ padding: 14, background: 'rgba(0,0,0,0.12)', border: '1px solid rgba(255,255,255,0.12)' }}
+            className="card cardInset"
+            style={{ padding: 14 }}
           >
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="pill" style={{ color: 'var(--text)' }}>{p.name}</span>
@@ -1753,8 +1753,8 @@ function ScoresByPlayer({
                         justifyContent: 'space-between',
                         padding: 10,
                         borderRadius: 12,
-                        border: '1px solid rgba(255,255,255,0.10)',
-                        background: v.isBust ? 'rgba(255,90,107,0.10)' : 'rgba(0,0,0,0.10)',
+                         border: '1px solid var(--border)',
+                         background: v.isBust ? 'var(--accent-surface)' : 'var(--panel)',
                       }}
                     >
                       <div className="row" style={{ flexWrap: 'wrap' }}>
