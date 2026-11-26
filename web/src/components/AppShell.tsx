@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import { hostSecretForRoom, rememberHostSecret, rememberRoomIdentity } from '@/lib/room-session'
 import Icon from './Icon'
 import { ScoringMenuContext } from './ScoringScreen'
 
@@ -62,8 +63,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setOpen(false)
-    setHostSecret(localStorage.getItem('dc_hostSecret'))
-  }, [pathname])
+    setHostSecret(roomCode ? hostSecretForRoom(roomCode) : null)
+  }, [pathname, roomCode])
 
   useEffect(() => {
     const dialog = menuRef.current
@@ -223,8 +224,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       const hostSecretIncoming = typeof evt?.hostSecret === 'string' ? evt.hostSecret : null
       if (!roomCode) return
 
-      if (hostSecretIncoming) localStorage.setItem('dc_hostSecret', hostSecretIncoming)
-      localStorage.setItem('dc_role', 'PLAYER')
+      if (hostSecretIncoming) rememberHostSecret(roomCode, hostSecretIncoming)
+      rememberRoomIdentity(roomCode, localStorage.getItem('dc_authDisplayName') || localStorage.getItem('dc_name') || 'Guest', 'PLAYER')
       setToast('Challenge accepted. Joining lobby...')
       setTimeout(() => setToast(null), 1600)
       window.location.href = `/room/${roomCode}/lobby`
@@ -242,9 +243,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     function onHostGranted(evt: any) {
       const hostSecret = typeof evt?.hostSecret === 'string' ? evt.hostSecret : null
-      if (!hostSecret) return
-      localStorage.setItem('dc_hostSecret', hostSecret)
-      setHostSecret(hostSecret)
+      const code = typeof evt?.code === 'string' ? evt.code.toUpperCase() : null
+      if (!hostSecret || !code) return
+      rememberHostSecret(code, hostSecret)
+      if (window.location.pathname.split('/')[2]?.toUpperCase() === code) setHostSecret(hostSecret)
       setToast('You are now host for this room.')
       setTimeout(() => setToast(null), 2200)
     }
@@ -326,7 +328,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     }
-    localStorage.setItem('dc_role', 'SPECTATOR')
     window.location.href = '/'
   }
 

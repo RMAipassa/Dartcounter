@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import { hostSecretForRoom, rememberRoomIdentity } from '@/lib/room-session'
 
 export default function JoinPage() {
   const router = useRouter()
@@ -36,13 +37,14 @@ export default function JoinPage() {
       const authToken = rawToken && rawToken.trim() ? rawToken.trim() : undefined
       const res = await socket.emitWithAck('room:join', {
         code,
+        hostSecret: hostSecretForRoom(code) ?? undefined,
         name: effectiveName,
         authToken,
         asSpectator,
       })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to join room')
       localStorage.setItem('dc_name', effectiveName)
-      localStorage.setItem('dc_role', res.role ?? (asSpectator ? 'SPECTATOR' : 'PLAYER'))
+      rememberRoomIdentity(code, effectiveName, res.role ?? (asSpectator ? 'SPECTATOR' : 'PLAYER'))
       router.push(`/room/${code}/lobby`)
     } catch (e: any) {
       setErr(e?.message ?? String(e))

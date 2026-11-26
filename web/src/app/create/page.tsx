@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import { rememberHostSecret, rememberRoomIdentity } from '@/lib/room-session'
 import type { AroundSettings, GameSettings, PracticeSettings, X01Settings } from '@/lib/types'
 
 const allowedX01StartScores = [121, 170, 301, 501] as const
@@ -86,11 +87,8 @@ export default function CreatePage() {
       if (!res?.ok) throw new Error(res?.message ?? 'Failed to create room')
 
       localStorage.setItem('dc_name', effectiveName)
-      localStorage.setItem('dc_hostSecret', res.hostSecret)
-      localStorage.setItem('dc_role', res.role ?? 'PLAYER')
-      if (res.playerId) {
-        localStorage.setItem(`dc_controlled_${res.code}`, JSON.stringify([res.playerId]))
-      }
+      rememberHostSecret(res.code, res.hostSecret)
+      rememberRoomIdentity(res.code, effectiveName, res.role ?? 'PLAYER')
       if (normalizedSettings.gameType === 'PRACTICE') router.push(`/room/${res.code}/game`)
       else router.push(`/room/${res.code}/lobby`)
     } catch (e: any) {

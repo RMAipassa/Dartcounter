@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useParams } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import { hostSecretForRoom, rememberHostSecret, rememberRoomIdentity } from '@/lib/room-session'
 import type { Tournament, TournamentInvite } from '@/lib/types'
 
 export default function TournamentDetailPage() {
@@ -184,8 +185,9 @@ export default function TournamentDetailPage() {
       })
       if (!res?.ok) throw new Error(res?.message ?? 'Could not create room')
       if (typeof res.hostSecret === 'string' && res.hostSecret) {
-        localStorage.setItem('dc_hostSecret', res.hostSecret)
+        rememberHostSecret(res.code, res.hostSecret)
       }
+      rememberRoomIdentity(res.code, fallbackName, res.role ?? 'PLAYER')
       localStorage.setItem('dc_name', fallbackName)
       window.location.href = `/room/${res.code}/lobby`
     } catch (e: any) {
@@ -200,11 +202,13 @@ export default function TournamentDetailPage() {
       const socket = getSocket(serverUrl)
       const res = await socket.emitWithAck('room:join', {
         code: roomCode,
+        hostSecret: hostSecretForRoom(roomCode) ?? undefined,
         name: displayName,
         authToken: token,
         asSpectator: false,
       })
       if (!res?.ok) throw new Error(res?.message ?? 'Could not join match room')
+      rememberRoomIdentity(roomCode, displayName, res.role ?? 'PLAYER')
       localStorage.setItem('dc_name', displayName)
       window.location.href = `/room/${roomCode}/game`
     } catch (e: any) {

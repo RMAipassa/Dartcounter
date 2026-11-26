@@ -159,6 +159,7 @@ export type RoomSnapshot = {
     autodartsPending?: AutodartsPendingTurn | null
   }
   clients: Array<{ socketId: string; name: string; userId?: string; isHost: boolean; role: 'PLAYER' | 'SPECTATOR' }>
+  controllerSocketIdByPlayerId?: Record<string, string>
   match: MatchSnapshot
 }
 

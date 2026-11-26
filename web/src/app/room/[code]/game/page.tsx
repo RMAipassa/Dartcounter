@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import { rememberActiveMatch, subscribeToRoom } from '@/lib/room-session'
 import type { Dart, MatchSnapshot, Player, PlayerStats, RoomSnapshot } from '@/lib/types'
 import { suggestCheckout, type OutRule } from '@/lib/checkout'
 import DartKeypad from '@/components/DartKeypad'
@@ -49,7 +50,7 @@ export default function GamePage() {
   const [voiceAlwaysOn, setVoiceAlwaysOn] = useState(false)
   const [voicePausedForCallout, setVoicePausedForCallout] = useState(false)
   const voiceLang: VoiceLang = 'EN'
-  const [hostSecret, setHostSecret] = useState<string | null>(null)
+  const [socketId, setSocketId] = useState<string>()
   const [hydrated, setHydrated] = useState(false)
   const missingBoardNoticeKeyRef = useRef('')
   const speechRef = useRef<any>(null)
@@ -107,7 +108,6 @@ export default function GamePage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     setHydrated(true)
-    setHostSecret(localStorage.getItem('dc_hostSecret'))
     const savedCallouts = localStorage.getItem('dc_voiceCallouts')
     if (savedCallouts === 'off') setVoiceCalloutsEnabled(false)
     const savedAlwaysOn = localStorage.getItem('dc_voiceAlwaysOn')
@@ -134,6 +134,7 @@ export default function GamePage() {
     socket.on('room:snapshot', (s: any) => {
       if (!mounted) return
       if (s?.code?.toUpperCase?.() !== code) return
+      rememberActiveMatch(s)
       setSnap(s)
       const debug = s?.room?.autodartsRoutingDebug
       if (debug?.missingPersonalDevice && debug?.currentPlayerUserId) {
@@ -228,36 +229,18 @@ export default function GamePage() {
       void enqueueCalloutPlayback(() => playTurnCallout(evt, voiceLang, activeCalloutAudioRef, missingCalloutAudioRef))
     })
 
-    const name = localStorage.getItem('dc_authDisplayName') || localStorage.getItem('dc_name') || 'Guest'
-    const role = localStorage.getItem('dc_role')
-    const authToken = localStorage.getItem('dc_authToken')
-    socket
-      .emitWithAck('room:join', {
-        code,
-        name,
-        hostSecret: hostSecret ?? undefined,
-        authToken: authToken ?? undefined,
-        asSpectator: role === 'SPECTATOR',
-      })
-      .then((res: any) => {
-        if (!res?.ok) {
-          setToast(res?.message ?? 'Failed to join')
-          return
-        }
-        if (res.role === 'PLAYER' && res.playerId) {
-          rememberControlledPlayer(code, res.playerId)
-        }
-      })
+    const stop = subscribeToRoom(socket, code, (connected) => setSocketId(connected ? socket.id : undefined), setToast)
 
     return () => {
       mounted = false
+      stop()
       socket.off('room:snapshot')
       socket.off('room:autodartsDart')
       socket.off('room:autodartsTurnBuffer')
       socket.off('room:autodartsTurnCleared')
       socket.off('room:turnAccepted')
     }
-  }, [code, hostSecret, serverUrl, hydrated, enqueueCalloutPlayback])
+  }, [code, serverUrl, hydrated, enqueueCalloutPlayback])
 
   const match = snap?.match
   const leg = match?.leg
@@ -282,16 +265,19 @@ export default function GamePage() {
   const autodartsActivePlayerName = autodartsActiveUserId
     ? (snap?.clients ?? []).find((c) => c.userId === autodartsActiveUserId)?.name ?? null
     : null
-  const isHost = Boolean(hostSecret)
+  const isHost = Boolean(socketId && snap?.clients.some((client) => client.socketId === socketId && client.isHost))
+  function controls(playerId: string) {
+    return Boolean(socketId && snap?.controllerSocketIdByPlayerId?.[playerId] === socketId)
+  }
   const localTournamentHostOverride = Boolean(isHost && snap?.room?.tournamentMatch?.participationMode === 'LOCAL')
   const autodartsBufferPlayerName = autodartsBufferPlayerId
     ? players.find((p) => p.id === autodartsBufferPlayerId)?.name ?? null
     : null
   const canSubmitByControl =
-    localTournamentHostOverride || (hydrated && currentPlayer ? canSubmitForCurrent(code, currentPlayer.id) : false)
+    localTournamentHostOverride || Boolean(currentPlayer && controls(currentPlayer.id))
   const canClearAutodartsPending =
     autodartsBuffer.length > 0 &&
-    (isHost || (hydrated && autodartsBufferPlayerId ? canSubmitForCurrent(code, autodartsBufferPlayerId) : false))
+    (isHost || Boolean(autodartsBufferPlayerId && controls(autodartsBufferPlayerId)))
   const autodartsControllingTurn =
     Boolean(currentPlayer?.id) &&
     autodarts?.status === 'CONNECTED' &&
@@ -363,7 +349,7 @@ export default function GamePage() {
   async function submitTurn(
     override?: { mode?: 'TOTAL' | 'PER_DART'; total?: number; darts?: Dart[] },
   ) {
-    if (!canSubmitNow || submittingRef.current) return
+    if (!canSubmitNow || submittingRef.current || !getSocket(serverUrl).connected) return
     submittingRef.current = true
     setSubmitting(true)
     try {
@@ -763,7 +749,7 @@ export default function GamePage() {
             {!players.length ? <p className="playerCard help">Waiting for the scoreboard…</p> : null}
           </div>
           {!finished && !canSubmitNow && !autodartsControllingTurn ? <div className="turnBanner">
-            <span>{match?.status === 'LOBBY' ? 'The match is in the lobby' : currentPlayer ? `${currentPlayer.name} to throw` : 'Waiting for match'}</span>
+            <span>{!socketId ? 'Connecting to the match…' : match?.status === 'LOBBY' ? 'The match is in the lobby' : currentPlayer ? `${currentPlayer.name} to throw` : 'Waiting for match'}</span>
             {match?.status === 'LOBBY' ? <Link className="btn" href={`/room/${code}/lobby`}>Back to lobby</Link> : null}
           </div> : null}
         </section>
@@ -1600,26 +1586,6 @@ function isSegmentWord(word?: string): boolean {
   return Number.isInteger(n) && n >= 1 && n <= 20
 }
 
-function canSubmitForCurrent(code: string, currentPlayerId: string): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    const key = `dc_controlled_${code.toUpperCase()}`
-    const ids = JSON.parse(localStorage.getItem(key) ?? '[]') as string[]
-    return ids.includes(currentPlayerId)
-  } catch {
-    return false
-  }
-}
-
-function rememberControlledPlayer(code: string, playerId: string): void {
-  try {
-    const key = `dc_controlled_${code.toUpperCase()}`
-    const ids = JSON.parse(localStorage.getItem(key) ?? '[]') as string[]
-    if (!ids.includes(playerId)) localStorage.setItem(key, JSON.stringify([...ids, playerId]))
-  } catch {
-    localStorage.setItem(`dc_controlled_${code.toUpperCase()}`, JSON.stringify([playerId]))
-  }
-}
 
 function voiceRecognitionErrorMessage(error?: string): string {
   if (error === 'not-allowed' || error === 'service-not-allowed') {

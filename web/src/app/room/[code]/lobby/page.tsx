@@ -7,6 +7,7 @@ import NameRow from '@/components/NameRow'
 import { SectionPanel, SectionTabs } from '@/components/SectionTabs'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import { hostSecretForRoom, rememberActiveMatch, rememberRoomIdentity, subscribeToRoom } from '@/lib/room-session'
 import type { GameSettings, PracticeSettings, RoomSnapshot } from '@/lib/types'
 
 const allowedX01StartScores = [121, 170, 301, 501] as const
@@ -32,7 +33,7 @@ export default function LobbyPage() {
   const [newPlayer, setNewPlayer] = useState('')
   const [startingPlayerIndex, setStartingPlayerIndex] = useState(0)
   const [friends, setFriends] = useState<LobbyFriend[]>([])
-  const hostSecret = typeof window !== 'undefined' ? localStorage.getItem('dc_hostSecret') : null
+  const hostSecret = typeof window !== 'undefined' ? hostSecretForRoom(code) : null
 
   useEffect(() => {
     const socket = getSocket(serverUrl)
@@ -41,7 +42,7 @@ export default function LobbyPage() {
     socket.on('room:snapshot', (s: any) => {
       if (!mounted) return
       if (s?.code?.toUpperCase?.() !== code) return
-      setSocketId(socket.id)
+      rememberActiveMatch(s)
       setSnap(s)
 
       const status = s?.match?.status
@@ -59,35 +60,15 @@ export default function LobbyPage() {
       setTimeout(() => setToast(null), 2500)
     })
 
-    const name = localStorage.getItem('dc_authDisplayName') || localStorage.getItem('dc_name') || 'Guest'
-    const role = localStorage.getItem('dc_role')
-    const authToken = localStorage.getItem('dc_authToken')
-    socket
-      .emitWithAck('room:join', {
-        code,
-        name,
-        hostSecret: hostSecret ?? undefined,
-        authToken: authToken ?? undefined,
-        asSpectator: role === 'SPECTATOR',
-      })
-      .then((res: any) => {
-      if (!res?.ok) setToast(res?.message ?? 'Failed to join')
-      if (res?.ok && res?.role === 'PLAYER' && res?.playerId) {
-        const key = `dc_controlled_${code}`
-        const current = JSON.parse(localStorage.getItem(key) ?? '[]') as string[]
-        if (!current.includes(res.playerId)) {
-          current.push(res.playerId)
-          localStorage.setItem(key, JSON.stringify(current))
-        }
-      }
-      })
+    const stop = subscribeToRoom(socket, code, (connected) => setSocketId(connected ? socket.id : undefined), setToast)
 
     return () => {
       mounted = false
+      stop()
       socket.off('room:snapshot')
       socket.off('room:toast')
     }
-  }, [code, hostSecret, serverUrl])
+  }, [code, router, serverUrl])
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('dc_authToken') : null
@@ -119,14 +100,6 @@ export default function LobbyPage() {
       const socket = getSocket(serverUrl)
       const res = await socket.emitWithAck('lobby:addPlayer', { hostSecret, name: newPlayer })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed')
-
-      // Host controls players they add until the player joins.
-      const key = `dc_controlled_${code}`
-      const current = JSON.parse(localStorage.getItem(key) ?? '[]') as string[]
-      if (res?.player?.id && !current.includes(res.player.id)) {
-        current.push(res.player.id)
-        localStorage.setItem(key, JSON.stringify(current))
-      }
 
       setNewPlayer('')
     } catch (e: any) {
@@ -195,7 +168,7 @@ export default function LobbyPage() {
   async function changeRole() {
     const res = await getSocket(serverUrl).emitWithAck(iAmPlayer ? 'lobby:becomeSpectator' : 'lobby:becomePlayer')
     if (!res?.ok) setToast(res?.message ?? 'Could not switch roles')
-    else localStorage.setItem('dc_role', iAmPlayer ? 'SPECTATOR' : 'PLAYER')
+    else if (ownClient) rememberRoomIdentity(code, ownClient.name, iAmPlayer ? 'SPECTATOR' : 'PLAYER')
   }
 
   async function updateRoomMeta(patch: { title?: string; isPublic?: boolean }) {

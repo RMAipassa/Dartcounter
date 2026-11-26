@@ -78,6 +78,14 @@ In production, if `NEXT_PUBLIC_SERVER_URL` is not set, the web UI will connect t
 
 To try the UI on a phone, use single-port hosting and open `http://<your-PC's-LAN-IP>:<port>` from a phone on the same network. Leave `NEXT_PUBLIC_SERVER_URL` unset for the build so the browser uses that same address for scoring. A phone's `localhost` points to the phone, not your PC.
 
+## Saved matches
+
+X01 and Around the Board rooms are saved automatically to `data/matches/` on the server. Confirmed turns, rules, players, and the active leg survive server restarts and the Windows auto-updater. The game reconnects when the server comes back, and **Resume match** on Home opens the last active match on that browser. You can also use the original room code. Keep the same `data/` directory across deployments.
+
+Practice rooms are temporary. Saves preserve submitted turns; a visit that was still being entered is not part of the match until it is submitted.
+
+Run `npm run test:recovery` after installing the server and web dependencies to test recovery against an isolated server.
+
 ## Autodarts groundwork
 
 The server now includes an autodarts integration scaffold with room-to-device bindings, adapter mode switching, and mock dart events.

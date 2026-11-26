@@ -79,8 +79,11 @@ import {
   getRoom,
   isRoomEmpty,
   listPublicRooms,
+  persistRoom,
   removeClient,
   reorderPlayers,
+  restoreRooms,
+  updateSavedRoom,
 } from './store/memory'
 
 function randomId(bytes: number): string {
@@ -1490,6 +1493,7 @@ function autoCreateTournamentRoomIfReady(tournamentId: string, matchId: string):
   room.match.currentLegIndex = 0
   room.match.legs[0].startingPlayerIndex = 0
   room.match.status = 'LIVE'
+  persistRoom(room)
 
   assignMatchRoom({
     tournamentId,
@@ -1768,6 +1772,7 @@ function emitSnapshot(code: string) {
       isHost: c.isHost,
       role: c.role,
     })),
+    controllerSocketIdByPlayerId: room.controllerSocketIdByPlayerId,
     match: {
       ...matchSnapshot,
       statsByPlayerId: computePlayerStats(room.match),
@@ -1876,56 +1881,40 @@ function submitTurnForCurrentPlayer(args: {
     legMeta: { setNumber: snap.leg.setNumber, legNumber: snap.leg.legNumber },
   })
 
-  // Lock settings on first accepted turn
-  if (!room.match.lockedAt) room.match.lockedAt = Date.now()
-
-  const turn: TurnRecord = {
-    id: randomId(9),
-    playerId: currentPlayerId,
-    createdAt: Date.now(),
-    input: args.input,
-  }
-
-  const leg = room.match.legs[room.match.currentLegIndex]
-  leg.turns.push(turn)
-
   let finishedLegNumber: number | null = null
   let finishedSetNumber: number | null = null
+  let winnerId: string | null = null
 
-  // Recompute to see if leg finished and advance
-  const nextSnap = computeMatchSnapshotForRoom(room.match)
-  const winnerId = nextSnap.leg.winnerPlayerId
-  if (winnerId) {
-    const practiceTraining = room.match.settings.gameType === 'PRACTICE'
-    if (!practiceTraining) {
-      finishedLegNumber = leg.legNumber
-      finishedSetNumber = leg.setNumber
-    }
+  const matchFinished = updateSavedRoom(room, () => {
+    if (!room.match.lockedAt) room.match.lockedAt = Date.now()
+    const turn: TurnRecord = { id: randomId(9), playerId: currentPlayerId, createdAt: Date.now(), input: args.input }
+    const leg = room.match.legs[room.match.currentLegIndex]
+    leg.turns.push(turn)
+
+    winnerId = computeMatchSnapshotForRoom(room.match).leg.winnerPlayerId
+    if (!winnerId) return false
+
     leg.winnerPlayerId = winnerId
-    if (practiceTraining) {
+    if (room.match.settings.gameType === 'PRACTICE') {
       room.match.status = 'FINISHED'
-    } else {
-      room.match.legsWonByPlayerId[winnerId] = (room.match.legsWonByPlayerId[winnerId] ?? 0) + 1
+      return true
+    }
 
+    finishedLegNumber = leg.legNumber
+    finishedSetNumber = leg.setNumber
+    room.match.legsWonByPlayerId[winnerId] = (room.match.legsWonByPlayerId[winnerId] ?? 0) + 1
+    room.match.legsWonInCurrentSetByPlayerId[winnerId] = (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
+    if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
       if (!room.match.settings.setsEnabled) {
-        room.match.legsWonInCurrentSetByPlayerId[winnerId] = (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
-
-        if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
-          room.match.status = 'FINISHED'
-        }
+        room.match.status = 'FINISHED'
       } else {
-        room.match.legsWonInCurrentSetByPlayerId[winnerId] = (room.match.legsWonInCurrentSetByPlayerId[winnerId] ?? 0) + 1
-
-        if (room.match.legsWonInCurrentSetByPlayerId[winnerId] >= room.match.settings.legsToWin) {
-          room.match.setsWonByPlayerId[winnerId] = (room.match.setsWonByPlayerId[winnerId] ?? 0) + 1
-
-          if (room.match.setsWonByPlayerId[winnerId] >= room.match.settings.setsToWin) {
-            room.match.status = 'FINISHED'
-          } else {
-            room.match.currentSetNumber += 1
-            for (const p of room.match.players) {
-              room.match.legsWonInCurrentSetByPlayerId[p.id] = 0
-            }
+        room.match.setsWonByPlayerId[winnerId] = (room.match.setsWonByPlayerId[winnerId] ?? 0) + 1
+        if (room.match.setsWonByPlayerId[winnerId] >= room.match.settings.setsToWin) {
+          room.match.status = 'FINISHED'
+        } else {
+          room.match.currentSetNumber += 1
+          for (const p of room.match.players) {
+            room.match.legsWonInCurrentSetByPlayerId[p.id] = 0
           }
         }
       }
@@ -1943,19 +1932,25 @@ function submitTurnForCurrentPlayer(args: {
       })
       room.match.currentLegIndex = room.match.legs.length - 1
     }
-  }
+    return room.match.status === 'FINISHED'
+  })
 
-  if (room.match.status === 'FINISHED' && !room.statsRecorded) {
-    if (room.match.settings.gameType !== 'PRACTICE') {
-      const statsByPlayerId = computePlayerStats(room.match)
-      recordFinishedMatch({
-        roomCode: args.roomCode,
-        match: room.match,
-        statsByPlayerId,
-        playerUserIdByPlayerId: room.playerUserIdByPlayerId,
-      })
+  if (matchFinished && !room.statsRecorded) {
+    try {
+      if (room.match.settings.gameType !== 'PRACTICE') {
+        recordFinishedMatch({
+          roomCode: args.roomCode,
+          match: room.match,
+          statsByPlayerId: computePlayerStats(room.match),
+          playerUserIdByPlayerId: room.playerUserIdByPlayerId,
+        })
+      }
+      room.statsRecorded = true
+      persistRoom(room)
+    } catch (error) {
+      // The result has already been saved. Stats storage must not cause a retry of the visit.
+      console.error(`[matches] Could not record stats for ${room.code}`, error)
     }
-    room.statsRecorded = true
 
     const tournamentWinnerUserId = winnerId ? room.playerUserIdByPlayerId[winnerId] ?? null : null
     const tournamentWinnerName = winnerId ? room.match.players.find((p) => p.id === winnerId)?.name ?? null : null
@@ -1979,7 +1974,7 @@ function submitTurnForCurrentPlayer(args: {
     didCheckout: applied.didCheckout,
     finishedLegNumber,
     finishedSetNumber,
-    matchFinished: room.match.status === 'FINISHED',
+    matchFinished,
   }
 }
 
@@ -2174,6 +2169,8 @@ function removePlayerByName(roomCode: string, displayName: string): void {
   delete room.match.legsWonInCurrentSetByPlayerId[removed.id]
   delete room.match.setsWonByPlayerId[removed.id]
   delete room.playerUserIdByPlayerId[removed.id]
+  delete room.localOwnerByPlayerId[removed.id]
+  delete room.controllerSocketIdByPlayerId[removed.id]
 
   // Re-index order
   room.match.players = room.match.players.map((p, i) => ({ ...p, orderIndex: i }))
@@ -2238,13 +2235,14 @@ io.on('connection', (socket) => {
     }
   }
 
-  function detachFromRoom(code: string) {
+  function detachFromRoom(code: string, disconnected = false) {
     try {
       const room = getRoom(code)
       const leavingClient = getClient(room, socket.id)
       removeClient(room, socket.id)
 
-      if (leavingClient?.isHost && room.clients.size > 0) {
+      if (leavingClient?.isHost && room.clients.size > 0 && (!disconnected || room.match.settings.gameType === 'PRACTICE') &&
+          ![...room.clients.values()].some((client) => client.isHost)) {
         const remaining = [...room.clients.values()]
         const secondPlayerName = room.match.players[1]?.name?.toLowerCase()
         let nextHost =
@@ -2254,9 +2252,9 @@ io.on('connection', (socket) => {
           remaining.find((c) => c.role === 'PLAYER') ??
           remaining[0]
 
+        updateSavedRoom(room, () => { room.hostSecret = randomId(18) })
         for (const c of remaining) c.isHost = false
         nextHost.isHost = true
-        room.hostSecret = randomId(18)
 
         io.to(nextHost.socketId).emit('room:hostGranted', {
           code: room.code,
@@ -2269,7 +2267,7 @@ io.on('connection', (socket) => {
       }
 
       const hostSocketId = [...room.clients.values()].find((c) => c.isHost)?.socketId
-      reassignControllersForSocket(code, socket.id, hostSocketId)
+      reassignControllersForSocket(code, socket.id, disconnected ? undefined : hostSocketId)
 
       socket.leave(roomChannel(code))
       // Room deletion is delayed (to allow refresh/rejoin)
@@ -2426,6 +2424,7 @@ io.on('connection', (socket) => {
       const room = createRoom({ hostName: fromUser.displayName, settings: challengeMatchSettings })
       room.title = `${fromUser.displayName} vs ${toUser.displayName}`
       room.isPublic = false
+      persistRoom(room)
 
       invite.status = 'ACCEPTED'
 
@@ -2638,6 +2637,7 @@ io.on('connection', (socket) => {
         }
       }
 
+      persistRoom(room)
       cb?.({ ok: true, code: room.code, hostSecret: room.hostSecret, role: responseRole, playerId: responsePlayerId })
       emitSnapshot(room.code)
     } catch (err) {
@@ -2693,8 +2693,10 @@ io.on('connection', (socket) => {
         throw new GameRuleError('ROOM_META_LOCKED', 'Room visibility is locked after the first recorded turn')
       }
 
-      if (typeof title === 'string') room.title = title.trim()
-      if (typeof isPublic === 'boolean') room.isPublic = isPublic
+      updateSavedRoom(room, () => {
+        if (typeof title === 'string') room.title = title.trim()
+        if (typeof isPublic === 'boolean') room.isPublic = isPublic
+      })
 
       cb?.({ ok: true })
       emitSnapshot(code)
@@ -2755,11 +2757,15 @@ io.on('connection', (socket) => {
       const practiceSolo = room.match.settings.gameType === 'PRACTICE'
 
       const normalized = effectiveName.trim().toLowerCase()
-      const isExistingPlayerName = room.match.players.some((p) => p.name.toLowerCase() === normalized)
+      const isHost = hostSecret === room.hostSecret
+      const accountPlayer = userId ? room.match.players.find((p) => room.playerUserIdByPlayerId[p.id] === userId) : undefined
+      const namedPlayer = getPlayerByName(code, effectiveName)
+      const namedOwner = namedPlayer ? room.playerUserIdByPlayerId[namedPlayer.id] : undefined
+      const existingPlayer = accountPlayer ?? (!namedOwner || namedOwner === userId ? namedPlayer : null)
       const gameStarted = room.match.status !== 'LOBBY'
 
       let role: 'PLAYER' | 'SPECTATOR' =
-        isExistingPlayerName ? 'PLAYER' : gameStarted ? 'SPECTATOR' : asSpectator ? 'SPECTATOR' : 'PLAYER'
+        asSpectator ? 'SPECTATOR' : existingPlayer || (!gameStarted && !namedPlayer) ? 'PLAYER' : 'SPECTATOR'
 
       if (practiceSolo && gameStarted) {
         role = hostSecret === room.hostSecret ? 'PLAYER' : 'SPECTATOR'
@@ -2775,54 +2781,33 @@ io.on('connection', (socket) => {
         }
       }
 
-      addClient(room, {
-        socketId: socket.id,
-        name: effectiveName,
-        userId,
-        isHost: hostSecret === room.hostSecret,
-        role,
-      })
-      setSocketUser(userId)
-
       let playerId: string | undefined
-      if (role === 'PLAYER') {
-        if (tournamentMatch) {
-          if (tournamentMatch.participationMode === 'ONLINE') {
-            const mapped = Object.entries(room.playerUserIdByPlayerId).find(([, uid]) => uid === userId)?.[0]
-            if (mapped) {
-              room.controllerSocketIdByPlayerId[mapped] = socket.id
-              playerId = mapped
-            } else {
-              role = 'SPECTATOR'
-              const c = room.clients.get(socket.id)
-              if (c) c.role = 'SPECTATOR'
-            }
+      updateSavedRoom(room, () => {
+        const owner = userId ? `user:${userId}` : `guest:${normalized}`
+        const ownsLocalPlayer = (recordedOwner?: string) => recordedOwner === owner || (recordedOwner === 'host' && isHost)
+        if (role === 'PLAYER') {
+          let player = tournamentMatch
+            ? (tournamentMatch.participationMode === 'ONLINE' ? accountPlayer : namedPlayer)
+            : practiceSolo && gameStarted && isHost ? room.match.players[0] : existingPlayer
+          if (!player && !gameStarted && !tournamentMatch) player = ensurePlayer(code, effectiveName, socket.id, userId)
+          if (player) {
+            playerId = player.id
+            room.controllerSocketIdByPlayerId[playerId] = socket.id
+            if (!tournamentMatch && userId) room.playerUserIdByPlayerId[playerId] = userId
+            if (!ownsLocalPlayer(room.localOwnerByPlayerId[playerId])) delete room.localOwnerByPlayerId[playerId]
           } else {
-            const p = getPlayerByName(code, effectiveName)
-            if (p) {
-              room.controllerSocketIdByPlayerId[p.id] = socket.id
-              playerId = p.id
-            } else {
-              role = 'SPECTATOR'
-              const c = room.clients.get(socket.id)
-              if (c) c.role = 'SPECTATOR'
-            }
-          }
-        } else if (room.match.status === 'LOBBY') {
-          const p = ensurePlayer(code, effectiveName, socket.id, userId)
-          playerId = p?.id
-        } else {
-          const p =
-            practiceSolo && hostSecret === room.hostSecret
-              ? room.match.players[0] ?? null
-              : getPlayerByName(code, effectiveName)
-          if (p) {
-            room.controllerSocketIdByPlayerId[p.id] = socket.id
-            if (userId) room.playerUserIdByPlayerId[p.id] = userId
-            playerId = p.id
+            role = 'SPECTATOR'
           }
         }
-      }
+        if (!tournamentMatch && (role === 'PLAYER' || isHost)) {
+          for (const [id, localOwner] of Object.entries(room.localOwnerByPlayerId)) {
+            if (ownsLocalPlayer(localOwner)) room.controllerSocketIdByPlayerId[id] = socket.id
+          }
+        }
+      })
+
+      addClient(room, { socketId: socket.id, name: effectiveName, userId, isHost, role })
+      setSocketUser(userId)
 
       socket.join(roomChannel(code))
       ;(socket.data as any).roomCode = code
@@ -2831,7 +2816,8 @@ io.on('connection', (socket) => {
         socket.emit('room:toast', { message: 'Game already started: joined as spectator.' })
       }
 
-      cb?.({ ok: true, role, playerId })
+      const controlledPlayerIds = Object.keys(room.controllerSocketIdByPlayerId).filter((id) => room.controllerSocketIdByPlayerId[id] === socket.id)
+      cb?.({ ok: true, role, playerId, controlledPlayerIds })
       if (gameStarted && role === 'PLAYER') {
         syncRoomAutodartsBinding(code)
       }
@@ -2843,6 +2829,7 @@ io.on('connection', (socket) => {
         raw: {
           ...(typeof raw === 'object' && raw ? (raw as Record<string, unknown>) : {}),
           authToken: typeof (raw as any)?.authToken === 'string' ? '[present]' : undefined,
+          hostSecret: typeof (raw as any)?.hostSecret === 'string' ? '[present]' : undefined,
         },
       })
       if (err instanceof ZodError) {
@@ -2878,8 +2865,13 @@ io.on('connection', (socket) => {
         }
       }
 
+      const existing = getPlayerByName(code, client.name)
+      if (existing && room.playerUserIdByPlayerId[existing.id] && room.playerUserIdByPlayerId[existing.id] !== client.userId) {
+        throw new GameRuleError('NOT_ALLOWED', 'This player is linked to another account')
+      }
+      const p = updateSavedRoom(room, () => ensurePlayer(code, client.name, socket.id, client.userId))
+      if (!p) throw new GameRuleError('ROLE_LOCKED', 'Cannot change role after game start')
       client.role = 'PLAYER'
-      const p = ensurePlayer(code, client.name, socket.id, client.userId)
       cb?.({ ok: true })
       emitSnapshot(code)
     } catch (err) {
@@ -2901,8 +2893,14 @@ io.on('connection', (socket) => {
       if (room.match.lockedAt || totalTurnsInMatch(room.match) > 0) {
         throw new GameRuleError('SETTINGS_LOCKED', 'Game is locked after the first recorded turn')
       }
-      const player = addPlayer(room, name)
-      room.controllerSocketIdByPlayerId[player.id] = socket.id
+      const client = getClient(room, socket.id)
+      if (!client) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
+      const player = updateSavedRoom(room, () => {
+        const player = addPlayer(room, name)
+        room.controllerSocketIdByPlayerId[player.id] = socket.id
+        room.localOwnerByPlayerId[player.id] = client.isHost ? 'host' : client.userId ? `user:${client.userId}` : `guest:${client.name.trim().toLowerCase()}`
+        return player
+      })
       cb?.({ ok: true, player })
       emitSnapshot(code)
     } catch (err) {
@@ -2919,7 +2917,7 @@ io.on('connection', (socket) => {
       const client = getClient(room, socket.id)
       if (!client) throw new GameRuleError('NOT_IN_ROOM', 'Join a room first')
 
-      removePlayerByName(code, client.name)
+      updateSavedRoom(room, () => removePlayerByName(code, client.name))
       client.role = 'SPECTATOR'
       cb?.({ ok: true })
       emitSnapshot(code)
@@ -2941,9 +2939,13 @@ io.on('connection', (socket) => {
       assertHost(room, hostSecret)
       if (room.match.status !== 'LOBBY') throw new GameRuleError('NOT_IN_LOBBY', 'Game already started')
 
-      const player = addPlayer(room, name)
-      // Host that adds the player controls it until that player joins.
-      room.controllerSocketIdByPlayerId[player.id] = socket.id
+      const player = updateSavedRoom(room, () => {
+        const player = addPlayer(room, name)
+        // The host controls local players across reconnects until they join separately.
+        room.controllerSocketIdByPlayerId[player.id] = socket.id
+        room.localOwnerByPlayerId[player.id] = 'host'
+        return player
+      })
       cb?.({ ok: true, player })
       emitSnapshot(code)
     } catch (err) {
@@ -2960,7 +2962,7 @@ io.on('connection', (socket) => {
       const room = getRoom(code)
       assertHost(room, hostSecret)
       if (room.match.status !== 'LOBBY') throw new GameRuleError('NOT_IN_LOBBY', 'Game already started')
-      reorderPlayers(room, playerIdsInOrder)
+      updateSavedRoom(room, () => reorderPlayers(room, playerIdsInOrder))
       cb?.({ ok: true })
       emitSnapshot(code)
     } catch (err) {
@@ -2981,7 +2983,7 @@ io.on('connection', (socket) => {
       if (totalTurnsInMatch(room.match) > 0 || room.match.lockedAt) {
         throw new GameRuleError('SETTINGS_LOCKED', 'Settings are locked after the first recorded turn')
       }
-      room.match.settings = settings
+      updateSavedRoom(room, () => { room.match.settings = settings })
       cb?.({ ok: true })
       emitSnapshot(code)
     } catch (err) {
@@ -3008,8 +3010,10 @@ io.on('connection', (socket) => {
         })
       }
 
-      room.match.status = 'LIVE'
-      room.match.legs[0].startingPlayerIndex = startingPlayerIndex
+      updateSavedRoom(room, () => {
+        room.match.status = 'LIVE'
+        room.match.legs[0].startingPlayerIndex = startingPlayerIndex
+      })
       autodartsPendingTurnByRoomCode.delete(code)
       syncRoomAutodartsBinding(code)
 
@@ -3141,25 +3145,26 @@ io.on('connection', (socket) => {
       const room = getRoom(code)
       assertHost(room, hostSecret)
 
-      // Find last turn in current leg, or previous leg.
-      let leg = room.match.legs[room.match.currentLegIndex]
-      if (!leg) throw new GameRuleError('INVALID_STATE', 'No leg')
+      updateSavedRoom(room, () => {
+        // Find last turn in current leg, or previous leg.
+        let leg = room.match.legs[room.match.currentLegIndex]
+        if (!leg) throw new GameRuleError('INVALID_STATE', 'No leg')
 
-      if (leg.turns.length === 0 && room.match.currentLegIndex > 0) {
-        // Move back a leg
-        room.match.currentLegIndex -= 1
-        leg = room.match.legs[room.match.currentLegIndex]
-        leg.winnerPlayerId = null
-      }
+        if (leg.turns.length === 0 && room.match.currentLegIndex > 0) {
+          room.match.currentLegIndex -= 1
+          leg = room.match.legs[room.match.currentLegIndex]
+          leg.winnerPlayerId = null
+        }
 
-      const popped = leg.turns.pop()
-      if (!popped) throw new GameRuleError('NOTHING_TO_UNDO', 'No turns to undo')
+        const popped = leg.turns.pop()
+        if (!popped) throw new GameRuleError('NOTHING_TO_UNDO', 'No turns to undo')
 
-      // If we undid the first ever turn, unlock settings
-      if (totalTurnsInMatch(room.match) === 0) {
-        room.match.lockedAt = null
-        if (room.match.status === 'LIVE') room.match.status = 'LOBBY'
-      }
+        // If we undid the first ever turn, unlock settings.
+        if (totalTurnsInMatch(room.match) === 0) {
+          room.match.lockedAt = null
+          if (room.match.status === 'LIVE') room.match.status = 'LOBBY'
+        }
+      })
 
       autodartsPendingTurnByRoomCode.delete(code)
 
@@ -3176,7 +3181,7 @@ io.on('connection', (socket) => {
     if (userId) removeOnlineSocket(userId, socket.id)
     const code = (socket.data as any).roomCode as string | undefined
     if (!code) return
-    detachFromRoom(code)
+      detachFromRoom(code, true)
   })
 })
 
@@ -3194,11 +3199,13 @@ async function startNext() {
 }
 
 async function main() {
+  restoreRooms(gameSettingsSchema)
   await startNext()
   setInterval(processTournamentNoShowForfeits, 15_000)
   server.listen(port, () => {
     // eslint-disable-next-line no-console
-    console.log(`server listening on :${port}`)
+    const address = server.address()
+    console.log(`server listening on :${typeof address === 'object' && address ? address.port : port}`)
   })
 }
 

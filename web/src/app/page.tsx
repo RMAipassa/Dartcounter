@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import DartboardArt from '@/components/DartboardArt'
 import Icon from '@/components/Icon'
+import ResumeMatch from '@/components/ResumeMatch'
 
 const activities = [
   { href: '/create?mode=practice', icon: 'target', label: 'Solo training', title: 'Practice', description: 'Work on doubles, trebles, or your finishing.' },
@@ -21,6 +22,7 @@ export default function HomePage() {
           <div className="homeHeroActions">
             <Link className="btn btnPrimary" href="/create"><Icon name="plus" /> New match</Link>
             <Link className="btn btnHeroSecondary" href="/join"><Icon name="key" /> Join with code</Link>
+            <ResumeMatch />
           </div>
           <Link className="homeBrowse" href="/lobbies">Browse public lobbies <Icon name="arrow" /></Link>
         </div>

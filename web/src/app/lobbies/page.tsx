@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import { hostSecretForRoom, rememberRoomIdentity } from '@/lib/room-session'
 import type { PublicRoom } from '@/lib/types'
 
 function fmtAge(ms: number): string {
@@ -74,10 +75,10 @@ export default function PublicLobbiesPage() {
       if (!effectiveName.trim()) throw new Error('Enter your name first')
       const socket = getSocket(serverUrl)
       const authToken = localStorage.getItem('dc_authToken') ?? undefined
-      const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator })
+      const res = await socket.emitWithAck('room:join', { code, name: effectiveName, authToken, asSpectator, hostSecret: hostSecretForRoom(code) ?? undefined })
       if (!res?.ok) throw new Error(res?.message ?? 'Failed')
       localStorage.setItem('dc_name', effectiveName)
-      localStorage.setItem('dc_role', res.role ?? (asSpectator ? 'SPECTATOR' : 'PLAYER'))
+      rememberRoomIdentity(code, effectiveName, res.role ?? (asSpectator ? 'SPECTATOR' : 'PLAYER'))
       router.push(`/room/${code}/lobby`)
     } catch (e: any) {
       setToast(e?.message ?? String(e))

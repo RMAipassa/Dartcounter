@@ -383,6 +383,7 @@ input[type='checkbox'] { accent-color: var(--cta); }
   .heroNotation { display: none; }
   .homeHeroActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .homeHeroActions .btn { gap: 6px; padding-inline: 5px; font-size: 13px; }
+  .homeHeroActions .btn:nth-child(3) { grid-column: 1 / -1; }
   .homeHeroActions svg { width: 16px; height: 16px; }
   .homeModeRail { grid-template-columns: 1fr; gap: 8px; }
   .activityCard { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 10px; row-gap: 3px; padding: 12px 38px 12px 12px; }

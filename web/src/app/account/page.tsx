@@ -6,6 +6,7 @@ import NameRow, { NameMark } from '@/components/NameRow'
 import { SectionPanel, SectionTabs } from '@/components/SectionTabs'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
+import { rememberRoomIdentity } from '@/lib/room-session'
 
 type MeUser = {
   id: string
@@ -559,7 +560,7 @@ export default function AccountPage() {
       if (!res?.ok) throw new Error(res?.message ?? 'Could not respond to invite')
       await refreshIncomingInvites(serverUrl, setIncomingInvites)
       if (accept && typeof res?.roomCode === 'string') {
-        localStorage.setItem('dc_role', 'PLAYER')
+        rememberRoomIdentity(res.roomCode, me?.displayName || localStorage.getItem('dc_name') || 'Guest', 'PLAYER')
         window.location.href = `/room/${String(res.roomCode).toUpperCase()}/lobby`
       }
     } catch (e: any) {

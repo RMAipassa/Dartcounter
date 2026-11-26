@@ -1,6 +1,8 @@
 import { randomBytes } from 'crypto'
 import { GameRuleError } from '../game/errors'
 import type { GameSettings, Player, PlayerId, X01MatchState } from '../game/types'
+import type { z } from 'zod'
+import { readSavedMatches, removeSavedMatch, writeSavedMatch, type SavedMatch } from './saved-matches'
 
 export type RoomCode = string
 
@@ -21,6 +23,7 @@ export type RoomState = {
   hostSecret: string
   controllerSocketIdByPlayerId: Record<string, string>
   playerUserIdByPlayerId: Record<string, string>
+  localOwnerByPlayerId: Record<string, string>
   autodartsBoundUserId: string | null
   statsRecorded: boolean
   match: X01MatchState
@@ -30,6 +33,44 @@ export type RoomState = {
 const rooms = new Map<RoomCode, RoomState>()
 
 const ROOM_DELETE_DELAY_MS = 120_000
+
+export function restoreRooms(settings: z.ZodType<GameSettings>): RoomState[] {
+  return readSavedMatches(settings).map((saved) => {
+    const room: RoomState = {
+      ...saved, clients: new Map(), controllerSocketIdByPlayerId: {}, autodartsBoundUserId: null, emptyDeleteTimer: null,
+    }
+    rooms.set(room.code, room)
+    return room
+  })
+}
+
+function savedFields(room: RoomState): SavedMatch {
+  const { code, title, isPublic, createdAt, hostSecret, playerUserIdByPlayerId, localOwnerByPlayerId, statsRecorded, match } = room
+  return { code, title, isPublic, createdAt, hostSecret, playerUserIdByPlayerId, localOwnerByPlayerId, statsRecorded, match }
+}
+
+export function persistRoom(room: RoomState, wasSaved = false): void {
+  try {
+    if (room.match.settings.gameType !== 'PRACTICE') writeSavedMatch(savedFields(room))
+    else if (wasSaved) removeSavedMatch(room.code)
+  } catch (error) {
+    console.error(`[matches] Could not save room ${room.code}`, error instanceof Error ? error.message : error)
+    throw new GameRuleError('MATCH_SAVE_FAILED', 'Could not save this match. The change was not applied.')
+  }
+}
+
+export function updateSavedRoom<T>(room: RoomState, update: () => T): T {
+  const previous = structuredClone(savedFields(room))
+  const controllers = { ...room.controllerSocketIdByPlayerId }
+  try {
+    const result = update()
+    persistRoom(room, previous.match.settings.gameType !== 'PRACTICE')
+    return result
+  } catch (error) {
+    Object.assign(room, previous, { controllerSocketIdByPlayerId: controllers })
+    throw error
+  }
+}
 
 function randomId(bytes: number): string {
   // URL-safe, no padding
@@ -80,6 +121,7 @@ export function createRoom(args: { hostName: string; settings: GameSettings }): 
     hostSecret,
     controllerSocketIdByPlayerId: {},
     playerUserIdByPlayerId: {},
+    localOwnerByPlayerId: {},
     autodartsBoundUserId: null,
     statsRecorded: false,
     match,
@@ -101,7 +143,7 @@ export function listPublicRooms() {
   }> = []
 
   for (const room of rooms.values()) {
-    if (!room.isPublic) continue
+    if (!room.isPublic || room.clients.size === 0) continue
     out.push({
       code: room.code,
       title: room.title,
@@ -147,7 +189,7 @@ export function getClient(room: RoomState, socketId: string): ClientInfo | null 
 export function removeClient(room: RoomState, socketId: string): void {
   room.clients.delete(socketId)
 
-  if (room.clients.size === 0 && !room.emptyDeleteTimer) {
+  if (room.match.settings.gameType === 'PRACTICE' && room.clients.size === 0 && !room.emptyDeleteTimer) {
     room.emptyDeleteTimer = setTimeout(() => {
       // if the room still exists and still empty, delete
       const r = rooms.get(room.code)
