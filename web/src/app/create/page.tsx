@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
-import { rememberHostSecret, rememberRoomIdentity } from '@/lib/room-session'
+import { rememberHostSecret, rememberRoomIdentity, roomDeviceKey } from '@/lib/room-session'
 import type { AroundSettings, GameSettings, PracticeSettings, X01Settings } from '@/lib/types'
 
 const allowedX01StartScores = [121, 170, 301, 501] as const
@@ -78,6 +78,7 @@ export default function CreatePage() {
       const authToken = rawToken && rawToken.trim() ? rawToken.trim() : undefined
       const normalizedSettings = normalizeSettingsForCreate(settings)
       const res = await socket.emitWithAck('room:create', {
+        deviceKey: roomDeviceKey(),
         name: effectiveName,
         authToken,
         settings: normalizedSettings,

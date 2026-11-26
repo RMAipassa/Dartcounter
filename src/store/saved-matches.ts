@@ -10,7 +10,9 @@ export type SavedMatch = {
   isPublic: boolean
   createdAt: number
   hostSecret: string
+  hostUserId: string | null
   playerUserIdByPlayerId: Record<string, string>
+  guestDevicesByPlayerId: Record<string, string>
   localOwnerByPlayerId: Record<string, string>
   statsRecorded: boolean
   match: X01MatchState
@@ -34,7 +36,9 @@ export function readSavedMatches(settings: z.ZodType<GameSettings>): SavedMatch[
       isPublic: z.boolean(),
       createdAt: index,
       hostSecret: z.string().min(1),
+      hostUserId: z.string().nullable().default(null),
       playerUserIdByPlayerId: z.record(z.string(), z.string()),
+      guestDevicesByPlayerId: z.record(z.string(), z.string()).default({}),
       localOwnerByPlayerId: z.record(z.string(), z.string()),
       statsRecorded: z.boolean(),
       match: z.object({

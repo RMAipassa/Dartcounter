@@ -5,7 +5,7 @@ import http from 'http'
 import next from 'next'
 import nodemailer from 'nodemailer'
 import path from 'path'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { Server, type Socket } from 'socket.io'
 import { z } from 'zod'
 import { ZodError } from 'zod'
@@ -73,12 +73,14 @@ import {
   addClient,
   addPlayer,
   assertHost,
+  canHostRoom,
   createRoom,
   deleteRoom,
   getClient,
   getRoom,
   isRoomEmpty,
   listPublicRooms,
+  listMyOpenMatches,
   persistRoom,
   removeClient,
   reorderPlayers,
@@ -88,6 +90,10 @@ import {
 
 function randomId(bytes: number): string {
   return randomBytes(bytes).toString('base64url')
+}
+
+function roomDeviceHash(deviceKey?: string): string | undefined {
+  return deviceKey ? createHash('sha256').update(deviceKey).digest('hex') : undefined
 }
 
 function bearerTokenFromReq(req: express.Request): string | null {
@@ -1267,12 +1273,15 @@ const dartSchema: z.ZodType<Dart> = z.object({
   multiplier: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
 })
 
+const deviceKeySchema = z.string().regex(/^[a-f0-9]{64}$/).optional()
+
 const joinSchema = z.object({
   code: z.string().trim().min(1).max(16).optional(),
   name: z.string().trim().min(1).max(32),
   hostSecret: z.string().trim().min(1).max(128).optional(),
   authToken: z.string().trim().min(1).max(256).optional(),
   asSpectator: z.boolean().optional(),
+  deviceKey: deviceKeySchema,
 })
 
 const createSchema = z.object({
@@ -1283,6 +1292,13 @@ const createSchema = z.object({
   tournamentMatchId: z.string().trim().min(1).max(128).optional(),
   title: z.string().trim().min(0).max(48).optional(),
   isPublic: z.boolean().optional(),
+  deviceKey: deviceKeySchema,
+})
+
+const myMatchesSchema = z.object({
+  authToken: z.string().trim().min(1).max(256).optional(),
+  deviceKey: deviceKeySchema,
+  hostProofs: z.array(z.object({ code: z.string().regex(/^[A-Z0-9]{6}$/), hostSecret: z.string().min(1).max(128) })).max(2048).default([]),
 })
 
 const addPlayerSchema = z.object({
@@ -2169,6 +2185,7 @@ function removePlayerByName(roomCode: string, displayName: string): void {
   delete room.match.legsWonInCurrentSetByPlayerId[removed.id]
   delete room.match.setsWonByPlayerId[removed.id]
   delete room.playerUserIdByPlayerId[removed.id]
+  delete room.guestDevicesByPlayerId[removed.id]
   delete room.localOwnerByPlayerId[removed.id]
   delete room.controllerSocketIdByPlayerId[removed.id]
 
@@ -2241,7 +2258,8 @@ io.on('connection', (socket) => {
       const leavingClient = getClient(room, socket.id)
       removeClient(room, socket.id)
 
-      if (leavingClient?.isHost && room.clients.size > 0 && (!disconnected || room.match.settings.gameType === 'PRACTICE') &&
+      // Saved matches retain their owner when the host goes offline or switches rooms.
+      if (leavingClient?.isHost && room.clients.size > 0 && room.match.settings.gameType === 'PRACTICE' &&
           ![...room.clients.values()].some((client) => client.isHost)) {
         const remaining = [...room.clients.values()]
         const secondPlayerName = room.match.players[1]?.name?.toLowerCase()
@@ -2422,6 +2440,7 @@ io.on('connection', (socket) => {
       if (!fromUser || !toUser) throw new GameRuleError('CHALLENGE_NOT_FOUND', 'Challenge users not found')
 
       const room = createRoom({ hostName: fromUser.displayName, settings: challengeMatchSettings })
+      room.hostUserId = fromUser.id
       room.title = `${fromUser.displayName} vs ${toUser.displayName}`
       room.isPublic = false
       persistRoom(room)
@@ -2562,7 +2581,7 @@ io.on('connection', (socket) => {
 
   socket.on('room:create', (raw, cb) => {
     try {
-      const { name, authToken, settings, title, isPublic, tournamentId, tournamentMatchId } = createSchema.parse(raw)
+      const { name, authToken, settings, title, isPublic, tournamentId, tournamentMatchId, deviceKey } = createSchema.parse(raw)
       validateGameSettings(settings)
       validateLobbyStartScorePreset(settings)
       const auth = resolveOptionalAuthIdentity(authToken)
@@ -2572,13 +2591,16 @@ io.on('connection', (socket) => {
       leaveCurrentRoomIfAny()
 
       const room = createRoom({ hostName: effectiveName, settings })
+      room.hostUserId = userId ?? null
+      const deviceHash = roomDeviceHash(deviceKey)
       room.title = settings.gameType === 'PRACTICE' ? '' : (title ?? '').trim()
       room.isPublic = settings.gameType === 'PRACTICE' ? false : Boolean(isPublic)
-      addClient(room, { socketId: socket.id, name: effectiveName, userId, isHost: true, role: 'PLAYER' })
+      addClient(room, { socketId: socket.id, name: effectiveName, userId, deviceHash, isHost: true, role: 'PLAYER' })
       setSocketUser(userId)
 
       // By default, the host is also a player in the lobby.
       const hostPlayer = ensurePlayer(room.code, effectiveName, socket.id, userId)
+      if (hostPlayer && !userId && deviceHash) room.guestDevicesByPlayerId[hostPlayer.id] = deviceHash
       let responseRole: 'PLAYER' | 'SPECTATOR' = 'PLAYER'
       let responsePlayerId: string | undefined = hostPlayer?.id
 
@@ -2608,6 +2630,7 @@ io.on('connection', (socket) => {
             room.match.setsWonByPlayerId = {}
             room.controllerSocketIdByPlayerId = {}
             room.playerUserIdByPlayerId = {}
+            room.guestDevicesByPlayerId = {}
 
             for (const p of participants) {
               const player = addPlayer(room, p.displayName)
@@ -2647,6 +2670,7 @@ io.on('connection', (socket) => {
         raw: {
           ...(typeof raw === 'object' && raw ? (raw as Record<string, unknown>) : {}),
           authToken: typeof (raw as any)?.authToken === 'string' ? '[present]' : undefined,
+          deviceKey: typeof (raw as any)?.deviceKey === 'string' ? '[present]' : undefined,
         },
       })
       if (err instanceof ZodError) {
@@ -2664,6 +2688,18 @@ io.on('connection', (socket) => {
       cb?.({ ok: true, rooms: listPublicRooms() })
     } catch (err) {
       const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Invalid request')
+      cb?.({ ok: false, code: e.code, message: e.message })
+    }
+  })
+
+  socket.on('rooms:listMine', (raw, cb) => {
+    try {
+      const { authToken, deviceKey, hostProofs } = myMatchesSchema.parse(raw)
+      const userId = resolveAuthIdentity(authToken)?.userId
+      const matches = listMyOpenMatches({ userId, deviceHash: roomDeviceHash(deviceKey), hostProofs: new Map(hostProofs.map((proof) => [proof.code, proof.hostSecret])) })
+      cb?.({ ok: true, matches })
+    } catch (err) {
+      const e = err instanceof GameRuleError ? err : new GameRuleError('BAD_REQUEST', 'Could not load your matches')
       cb?.({ ok: false, code: e.code, message: e.message })
     }
   })
@@ -2744,11 +2780,12 @@ io.on('connection', (socket) => {
 
   socket.on('room:join', (raw, cb) => {
     try {
-      const { code, name, hostSecret, authToken, asSpectator } = joinSchema.parse(raw)
+      const { code, name, hostSecret, authToken, asSpectator, deviceKey } = joinSchema.parse(raw)
       if (!code) throw new GameRuleError('NEED_CODE', 'Room code is required')
       const auth = resolveOptionalAuthIdentity(authToken)
       const userId = auth?.userId
       const effectiveName = auth?.displayName ?? name
+      const deviceHash = roomDeviceHash(deviceKey)
 
       leaveCurrentRoomIfAny(code)
 
@@ -2757,18 +2794,20 @@ io.on('connection', (socket) => {
       const practiceSolo = room.match.settings.gameType === 'PRACTICE'
 
       const normalized = effectiveName.trim().toLowerCase()
-      const isHost = hostSecret === room.hostSecret
+      const isHost = canHostRoom(room, userId, hostSecret)
       const accountPlayer = userId ? room.match.players.find((p) => room.playerUserIdByPlayerId[p.id] === userId) : undefined
       const namedPlayer = getPlayerByName(code, effectiveName)
       const namedOwner = namedPlayer ? room.playerUserIdByPlayerId[namedPlayer.id] : undefined
-      const existingPlayer = accountPlayer ?? (!namedOwner || namedOwner === userId ? namedPlayer : null)
+      const namedDevice = namedPlayer ? room.guestDevicesByPlayerId[namedPlayer.id] : undefined
+      const devicePlayer = deviceHash ? room.match.players.find((p) => room.guestDevicesByPlayerId[p.id] === deviceHash && !room.playerUserIdByPlayerId[p.id]) : undefined
+      const existingPlayer = accountPlayer ?? devicePlayer ?? ((!namedOwner || namedOwner === userId) && (!namedDevice || namedDevice === deviceHash) ? namedPlayer : null)
       const gameStarted = room.match.status !== 'LOBBY'
 
       let role: 'PLAYER' | 'SPECTATOR' =
         asSpectator ? 'SPECTATOR' : existingPlayer || (!gameStarted && !namedPlayer) ? 'PLAYER' : 'SPECTATOR'
 
       if (practiceSolo && gameStarted) {
-        role = hostSecret === room.hostSecret ? 'PLAYER' : 'SPECTATOR'
+        role = isHost ? 'PLAYER' : 'SPECTATOR'
       }
 
       if (tournamentMatch) {
@@ -2783,7 +2822,9 @@ io.on('connection', (socket) => {
 
       let playerId: string | undefined
       updateSavedRoom(room, () => {
-        const owner = userId ? `user:${userId}` : `guest:${normalized}`
+        // Older saved matches can be linked from the browser that already has the host key.
+        if (isHost && userId && !room.hostUserId) room.hostUserId = userId
+        const owner = userId ? `user:${userId}` : `guest:${existingPlayer?.name.toLowerCase() ?? normalized}`
         const ownsLocalPlayer = (recordedOwner?: string) => recordedOwner === owner || (recordedOwner === 'host' && isHost)
         if (role === 'PLAYER') {
           let player = tournamentMatch
@@ -2793,7 +2834,12 @@ io.on('connection', (socket) => {
           if (player) {
             playerId = player.id
             room.controllerSocketIdByPlayerId[playerId] = socket.id
-            if (!tournamentMatch && userId) room.playerUserIdByPlayerId[playerId] = userId
+            if (!tournamentMatch && userId) {
+              room.playerUserIdByPlayerId[playerId] = userId
+              delete room.guestDevicesByPlayerId[playerId]
+            } else if (!tournamentMatch && !userId && deviceHash) {
+              room.guestDevicesByPlayerId[playerId] = deviceHash
+            }
             if (!ownsLocalPlayer(room.localOwnerByPlayerId[playerId])) delete room.localOwnerByPlayerId[playerId]
           } else {
             role = 'SPECTATOR'
@@ -2806,7 +2852,7 @@ io.on('connection', (socket) => {
         }
       })
 
-      addClient(room, { socketId: socket.id, name: effectiveName, userId, isHost, role })
+      addClient(room, { socketId: socket.id, name: room.match.players.find((player) => player.id === playerId)?.name ?? effectiveName, userId, deviceHash, isHost, role })
       setSocketUser(userId)
 
       socket.join(roomChannel(code))
@@ -2817,7 +2863,7 @@ io.on('connection', (socket) => {
       }
 
       const controlledPlayerIds = Object.keys(room.controllerSocketIdByPlayerId).filter((id) => room.controllerSocketIdByPlayerId[id] === socket.id)
-      cb?.({ ok: true, role, playerId, controlledPlayerIds })
+      cb?.({ ok: true, role, playerId, controlledPlayerIds, hostSecret: isHost ? room.hostSecret : undefined })
       if (gameStarted && role === 'PLAYER') {
         syncRoomAutodartsBinding(code)
       }
@@ -2830,6 +2876,7 @@ io.on('connection', (socket) => {
           ...(typeof raw === 'object' && raw ? (raw as Record<string, unknown>) : {}),
           authToken: typeof (raw as any)?.authToken === 'string' ? '[present]' : undefined,
           hostSecret: typeof (raw as any)?.hostSecret === 'string' ? '[present]' : undefined,
+          deviceKey: typeof (raw as any)?.deviceKey === 'string' ? '[present]' : undefined,
         },
       })
       if (err instanceof ZodError) {
@@ -2869,7 +2916,14 @@ io.on('connection', (socket) => {
       if (existing && room.playerUserIdByPlayerId[existing.id] && room.playerUserIdByPlayerId[existing.id] !== client.userId) {
         throw new GameRuleError('NOT_ALLOWED', 'This player is linked to another account')
       }
-      const p = updateSavedRoom(room, () => ensurePlayer(code, client.name, socket.id, client.userId))
+      if (existing && room.guestDevicesByPlayerId[existing.id] && room.guestDevicesByPlayerId[existing.id] !== client.deviceHash) {
+        throw new GameRuleError('NOT_ALLOWED', 'This player is linked to another browser')
+      }
+      const p = updateSavedRoom(room, () => {
+        const player = ensurePlayer(code, client.name, socket.id, client.userId)
+        if (player && !client.userId && client.deviceHash) room.guestDevicesByPlayerId[player.id] = client.deviceHash
+        return player
+      })
       if (!p) throw new GameRuleError('ROLE_LOCKED', 'Cannot change role after game start')
       client.role = 'PLAYER'
       cb?.({ ok: true })

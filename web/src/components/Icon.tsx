@@ -5,6 +5,7 @@ const shapes = {
   user: <><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1a7 7 0 0 1 14 0v1"/></>,
   trophy: <path d="M8 21h8m-4-4v4M7 4h10v6a5 5 0 0 1-10 0V4ZM7 6H3v2a4 4 0 0 0 4 4m10-6h4v2a4 4 0 0 1-4 4"/>,
   daily: <><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 10h16m-11 5 2 2 4-4"/></>,
+  clipboard: <><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 10h6m-6 4h6m-6 4h3"/></>,
   arrow: <path d="M4 12h15m-6-6 6 6-6 6"/>,
   plus: <path d="M12 5v14M5 12h14"/>,
   key: <><circle cx="8" cy="10" r="4"/><path d="m11 13 7 7 3-3-2-2-2 2m-1-5-2 2"/></>,

@@ -10,6 +10,7 @@ export type ClientInfo = {
   socketId: string
   name: string
   userId?: string
+  deviceHash?: string
   isHost: boolean
   role: 'PLAYER' | 'SPECTATOR'
 }
@@ -21,8 +22,10 @@ export type RoomState = {
   createdAt: number
   clients: Map<string, ClientInfo>
   hostSecret: string
+  hostUserId: string | null
   controllerSocketIdByPlayerId: Record<string, string>
   playerUserIdByPlayerId: Record<string, string>
+  guestDevicesByPlayerId: Record<string, string>
   localOwnerByPlayerId: Record<string, string>
   autodartsBoundUserId: string | null
   statsRecorded: boolean
@@ -45,8 +48,8 @@ export function restoreRooms(settings: z.ZodType<GameSettings>): RoomState[] {
 }
 
 function savedFields(room: RoomState): SavedMatch {
-  const { code, title, isPublic, createdAt, hostSecret, playerUserIdByPlayerId, localOwnerByPlayerId, statsRecorded, match } = room
-  return { code, title, isPublic, createdAt, hostSecret, playerUserIdByPlayerId, localOwnerByPlayerId, statsRecorded, match }
+  const { code, title, isPublic, createdAt, hostSecret, hostUserId, playerUserIdByPlayerId, guestDevicesByPlayerId, localOwnerByPlayerId, statsRecorded, match } = room
+  return { code, title, isPublic, createdAt, hostSecret, hostUserId, playerUserIdByPlayerId, guestDevicesByPlayerId, localOwnerByPlayerId, statsRecorded, match }
 }
 
 export function persistRoom(room: RoomState, wasSaved = false): void {
@@ -119,8 +122,10 @@ export function createRoom(args: { hostName: string; settings: GameSettings }): 
     createdAt: now,
     clients: new Map(),
     hostSecret,
+    hostUserId: null,
     controllerSocketIdByPlayerId: {},
     playerUserIdByPlayerId: {},
+    guestDevicesByPlayerId: {},
     localOwnerByPlayerId: {},
     autodartsBoundUserId: null,
     statsRecorded: false,
@@ -163,6 +168,37 @@ export function getRoom(code: RoomCode): RoomState {
   const room = rooms.get(code)
   if (!room) throw new GameRuleError('ROOM_NOT_FOUND', 'Room not found', { code })
   return room
+}
+
+export function canHostRoom(room: RoomState, userId?: string, hostSecret?: string) {
+  return Boolean((userId && room.hostUserId === userId) || (hostSecret && room.hostSecret === hostSecret))
+}
+
+export function listMyOpenMatches(args: { userId?: string; deviceHash?: string; hostProofs: Map<string, string> }) {
+  const matches = []
+  for (const room of rooms.values()) {
+    const { gameType } = room.match.settings
+    if (gameType === 'PRACTICE' || room.match.status === 'FINISHED') continue
+    const host = canHostRoom(room, args.userId, args.hostProofs.get(room.code))
+    const participant = room.match.players.some(({ id }) =>
+      (args.userId && room.playerUserIdByPlayerId[id] === args.userId) ||
+      (args.deviceHash && room.guestDevicesByPlayerId[id] === args.deviceHash),
+    )
+    if (!host && !participant) continue
+    let lastPlayedAt = room.createdAt
+    for (const leg of room.match.legs) lastPlayedAt = Math.max(lastPlayedAt, leg.turns.at(-1)?.createdAt ?? 0)
+    matches.push({
+      code: room.code,
+      title: room.title,
+      gameType,
+      startScore: room.match.settings.gameType === 'X01' ? room.match.settings.startScore : undefined,
+      status: room.match.status,
+      role: host ? 'HOST' : 'PLAYER',
+      players: room.match.players.map((p) => p.name),
+      lastPlayedAt,
+    })
+  }
+  return matches.sort((a, b) => b.lastPlayedAt - a.lastPlayedAt)
 }
 
 export function deleteRoom(code: RoomCode): void {

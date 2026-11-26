@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict')
 const { spawn } = require('node:child_process')
+const { randomBytes } = require('node:crypto')
 const { once } = require('node:events')
 const { mkdtemp, rm } = require('node:fs/promises')
 const { createRequire } = require('node:module')
@@ -136,6 +137,67 @@ test('restores matches and controllers after refresh and a forced server restart
     assert.equal(restoredSet.snapshot.match.currentLegIndex, 1)
     assert.equal(restoredSet.snapshot.match.setsWonByPlayerId[setRoom.playerId], 1)
     assert.equal(restoredSet.snapshot.match.leg.players[0].remaining, 121)
+  } finally {
+    for (const socket of sockets) socket.close()
+    await stopServer(server)
+    await rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('lists only authorized open matches and restores the owner on another device', { timeout: 40_000 }, async () => {
+  const cwd = await mkdtemp(path.join(process.env.DARTCOUNTER_TEST_TMPDIR || os.tmpdir(), 'dartcounter-my-matches-'))
+  const sockets = new Set()
+  const ownerDevice = randomBytes(32).toString('hex')
+  const guestDevice = randomBytes(32).toString('hex')
+  let server
+  try {
+    server = await startServer(cwd)
+    const registration = await fetch(`${server.url}/api/auth/register`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'owner@example.test', password: 'fixture-only-2026', displayName: 'Owner' }),
+    })
+    assert.ok(registration.ok)
+    const { token } = await registration.json()
+    const owner = await client(server.url, sockets)
+    const guest = await client(server.url, sockets)
+    const outsider = await client(server.url, sockets)
+    const match = await emit(owner, 'room:create', { name: 'Owner', authToken: token, deviceKey: ownerDevice, settings: x01, title: 'Private match' })
+    const joinedGuest = await emit(guest, 'room:join', { code: match.code, name: 'Guest', deviceKey: guestDevice })
+    await emit(owner, 'lobby:startGame', { hostSecret: match.hostSecret, startingPlayerIndex: 0 })
+    await emit(owner, 'game:submitTurn', { total: 60 })
+    const lobby = await emit(owner, 'room:create', { name: 'Owner', authToken: token, deviceKey: ownerDevice, settings: around })
+    await emit(owner, 'room:create', { name: 'Owner', authToken: token, deviceKey: ownerDevice, settings: practice })
+    const finished = await emit(owner, 'room:create', { name: 'Owner', authToken: token, settings: { ...x01, startScore: 121, legsToWin: 1 } })
+    await emit(owner, 'lobby:startGame', { hostSecret: finished.hostSecret, startingPlayerIndex: 0 })
+    await emit(owner, 'game:submitTurn', { darts: [{ segment: 20, multiplier: 3 }, { segment: 7, multiplier: 3 }, { segment: 20, multiplier: 2 }] })
+
+    assert.deepEqual((await emit(outsider, 'rooms:listMine', { hostProofs: [{ code: match.code, hostSecret: 'wrong' }] })).matches, [])
+    const viaProof = await emit(outsider, 'rooms:listMine', { hostProofs: [{ code: match.code, hostSecret: match.hostSecret }] })
+    assert.deepEqual(viaProof.matches.map((room) => [room.code, room.role]), [[match.code, 'HOST']])
+    assert.ok(!Object.hasOwn(viaProof.matches[0], 'hostSecret'))
+    const forged = await emit(outsider, 'room:join', { code: match.code, name: 'Guest', deviceKey: ownerDevice })
+    assert.equal(forged.role, 'SPECTATOR')
+
+    await stopServer(server)
+    for (const socket of sockets) socket.close()
+    server = await startServer(cwd)
+    const newDevice = await client(server.url, sockets)
+    const ownRooms = await emit(newDevice, 'rooms:listMine', { authToken: token })
+    assert.deepEqual(new Set(ownRooms.matches.map((room) => `${room.code}:${room.status}:${room.role}`)),
+      new Set([`${match.code}:LIVE:HOST`, `${lobby.code}:LOBBY:HOST`]))
+    const joined = await eventWithSnapshot(newDevice, 'room:join', { code: match.code, name: 'Owner', authToken: token })
+    assert.equal(joined.response.hostSecret, match.hostSecret)
+    assert.equal(joined.snapshot.match.leg.players[0].remaining, 241)
+    assert.ok(joined.snapshot.clients.find((entry) => entry.socketId === newDevice.id)?.isHost)
+
+    const guestBrowser = await client(server.url, sockets)
+    const theirRooms = await emit(guestBrowser, 'rooms:listMine', { deviceKey: guestDevice })
+    assert.deepEqual(theirRooms.matches.map((room) => [room.code, room.role]), [[match.code, 'PLAYER']])
+    const resumed = await eventWithSnapshot(guestBrowser, 'room:join', { code: match.code, name: 'Different display name', deviceKey: guestDevice })
+    assert.equal(resumed.response.playerId, joinedGuest.playerId)
+    assert.equal(resumed.response.hostSecret, undefined)
+    const scored = await eventWithSnapshot(guestBrowser, 'game:submitTurn', { total: 45 })
+    assert.deepEqual(scored.snapshot.match.leg.turns.map((visit) => visit.scoreTotal), [60, 45])
   } finally {
     for (const socket of sockets) socket.close()
     await stopServer(server)

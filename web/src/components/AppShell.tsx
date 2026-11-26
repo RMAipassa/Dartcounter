@@ -18,6 +18,7 @@ type BeforeInstallPromptEvent = Event & {
 const destinations = [
   { href: '/', label: 'Home', icon: 'home' },
   { href: '/lobbies', label: 'Lobbies', icon: 'users' },
+  { href: '/my-matches', label: 'My matches', icon: 'clipboard' },
   { href: '/daily-checkout', label: 'Daily', icon: 'daily' },
   { href: '/tournaments', label: 'Tournaments', icon: 'trophy' },
   { href: '/account', label: 'Account', icon: 'user' },
@@ -63,7 +64,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setOpen(false)
-    setHostSecret(roomCode ? hostSecretForRoom(roomCode) : null)
+    function readHost() { setHostSecret(roomCode ? hostSecretForRoom(roomCode) : null) }
+    readHost()
+    window.addEventListener('dc:hostSecretChanged', readHost)
+    return () => window.removeEventListener('dc:hostSecretChanged', readHost)
   }, [pathname, roomCode])
 
   useEffect(() => {
@@ -425,7 +429,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   function navLinks(dock: boolean, menu = false) {
-    return destinations.map(({ href, icon, label }) => {
+    return destinations.filter(({ href }) => !dock || href !== '/my-matches').map(({ href, icon, label }) => {
       const active = pathname === href || (href !== '/' && pathname.startsWith(`${href}/`))
       return (
         <Link key={href} href={href} className={dock ? 'mobileDockItem' : 'topbarLink'} aria-current={active ? 'page' : undefined} onClick={menu ? () => setOpen(false) : undefined}>

@@ -84,6 +84,8 @@ X01 and Around the Board rooms are saved automatically to `data/matches/` on the
 
 Practice rooms are temporary. Saves preserve submitted turns; a visit that was still being entered is not part of the match until it is submitted.
 
+**My matches** lists open rooms belonging to your signed-in account or this browser, including private rooms. Switching rooms keeps your host access. If a match was saved before account-based recovery was added, reopen it while signed in on the original host browser to link it to your account.
+
 Run `npm run test:recovery` after installing the server and web dependencies to test recovery against an isolated server.
 
 ## Autodarts groundwork

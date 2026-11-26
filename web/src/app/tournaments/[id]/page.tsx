@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useParams } from 'next/navigation'
 import { getServerUrl } from '@/lib/config'
 import { getSocket } from '@/lib/socket'
-import { hostSecretForRoom, rememberHostSecret, rememberRoomIdentity } from '@/lib/room-session'
+import { hostSecretForRoom, rememberHostSecret, rememberRoomIdentity, roomDeviceKey } from '@/lib/room-session'
 import type { Tournament, TournamentInvite } from '@/lib/types'
 
 export default function TournamentDetailPage() {
@@ -175,6 +175,7 @@ export default function TournamentDetailPage() {
       const fallbackName = localStorage.getItem('dc_authDisplayName') ?? localStorage.getItem('dc_name') ?? 'Player'
       const socket = getSocket(serverUrl)
       const res = await socket.emitWithAck('room:create', {
+        deviceKey: roomDeviceKey(),
         name: fallbackName,
         authToken: token,
         settings: t.settings,
@@ -203,11 +204,13 @@ export default function TournamentDetailPage() {
       const res = await socket.emitWithAck('room:join', {
         code: roomCode,
         hostSecret: hostSecretForRoom(roomCode) ?? undefined,
+        deviceKey: roomDeviceKey(),
         name: displayName,
         authToken: token,
         asSpectator: false,
       })
       if (!res?.ok) throw new Error(res?.message ?? 'Could not join match room')
+      if (res.hostSecret) rememberHostSecret(roomCode, res.hostSecret)
       rememberRoomIdentity(roomCode, displayName, res.role ?? 'PLAYER')
       localStorage.setItem('dc_name', displayName)
       window.location.href = `/room/${roomCode}/game`

@@ -24,7 +24,10 @@ export default function HomePage() {
             <Link className="btn btnHeroSecondary" href="/join"><Icon name="key" /> Join with code</Link>
             <ResumeMatch />
           </div>
-          <Link className="homeBrowse" href="/lobbies">Browse public lobbies <Icon name="arrow" /></Link>
+          <div className="row">
+            <Link className="homeBrowse" href="/my-matches">My matches <Icon name="arrow" /></Link>
+            <Link className="homeBrowse" href="/lobbies">Browse public lobbies <Icon name="arrow" /></Link>
+          </div>
         </div>
       </section>
 
